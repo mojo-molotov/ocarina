@@ -1,0 +1,99 @@
+name: 'Allure History Manager'
+description: 'Generate and save Allure reports with history'
+
+inputs:
+  branch-name:
+    description: 'Branch name to store history'
+    required: true
+  results-dir:
+    description: 'Directory containing allure results'
+    default: 'allure-results'
+  report-dir:
+    description: 'Directory to generate allure report'
+    default: 'allure-report'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@903f9c1a6ebcba6cf41d87230be49611ac97822e
+      with:
+        version: 10
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: 24
+
+    - name: Install Allure
+      shell: bash
+      run: pnpm add -g allure-commandline
+
+    - name: Restore Allure history
+      shell: bash
+      run: |
+        echo "📥 Restoring history..."
+        mkdir -p .allure-history-tmp
+
+        git clone --depth=1 \
+          --branch "${{ inputs.branch-name }}" \
+          "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
+          .allure-history-tmp 2>/dev/null || echo "⚠️ First run (no history yet)"
+
+        if [ -d ".allure-history-tmp/history" ]; then
+          mkdir -p "${{ inputs.results-dir }}/history"
+          cp -r .allure-history-tmp/history/* "${{ inputs.results-dir }}/history/" || true
+        fi
+
+    - name: Generate Allure report
+      shell: bash
+      run: |
+        echo "📊 Generating report..."
+        allure generate "${{ inputs.results-dir }}" \
+          -o "${{ inputs.report-dir }}" \
+          --clean
+
+    - name: Save history
+      shell: bash
+      run: |
+        echo "💾 Saving history..."
+    
+        rm -rf .allure-history-tmp
+        mkdir .allure-history-tmp
+        cd .allure-history-tmp
+    
+        git init
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+    
+        git fetch --depth=1 origin "${{ inputs.branch-name }}" 2>/dev/null && \
+          git checkout "${{ inputs.branch-name }}" || \
+          git checkout --orphan "${{ inputs.branch-name }}"
+    
+        rm -rf history
+        mkdir history
+        cp -r ../${{ inputs.report-dir }}/history/* history/ 2>/dev/null || true
+    
+        if [ -f "../${{ inputs.results-dir }}/categories.json" ]; then
+          cp ../${{ inputs.results-dir }}/categories.json .
+        fi
+    
+        git add .
+    
+        if git diff --staged --quiet; then
+          echo "No history changes."
+          exit 0
+        fi
+    
+        git commit -m "📊 Update history (build #${{ github.run_number }})"
+        git push origin "${{ inputs.branch-name }}"
+    
+        echo "✅ History updated"
+
+    - name: Upload report artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: allure-report
+        path: ${{ inputs.report-dir }}
+        retention-days: 1

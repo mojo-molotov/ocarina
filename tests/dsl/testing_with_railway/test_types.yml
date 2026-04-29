@@ -1,0 +1,206 @@
+# Success
+
+- case: action_start_full_chain_returns_action_chain
+  description: Full ActionStart → .failure() → .success() → .execute() chain returns ActionChain[T]
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart, ActionChain
+    from ocarina.railway.result import Ok
+
+    action = lambda: Ok(42)
+    result = ActionStart(action).failure(lambda e: None).success(lambda: None).execute()
+    reveal_type(result)  # N: Revealed type is .*ActionChain\[.*int.*\]
+
+- case: generic_type_preserved_through_chain
+  description: T is preserved from ActionStart through to ActionChain
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.railway.result import Ok
+
+    chain = ActionStart(lambda: Ok("hello")).failure(lambda e: None).success(lambda: None).execute()
+    reveal_type(chain)  # N: Revealed type is .*ActionChain\[.*str.*\]
+
+- case: action_chain_then_on_success_returns_action_start
+  description: ActionChain.then() on success rail returns ActionStart
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionChain, ActionStart
+    from ocarina.railway.result import Ok
+
+    chain = ActionChain(has_failed=False, result=Ok(42))
+    result = chain.then(lambda: Ok(42))
+    reveal_type(result)  # N: Revealed type is .*ActionStart.*
+
+- case: action_chain_then_on_failure_returns_neutral_action_start
+  # mypy limitation: .then() return type is always ActionStart | NeutralActionStart statically
+  # since has_failed is a runtime value. We verify the union contains NeutralActionStart.
+  description: ActionChain.then() return type includes NeutralActionStart
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionChain, NeutralActionStart
+    from ocarina.railway.result import Fail, Ok
+
+    chain: ActionChain[int] = ActionChain(has_failed=True, result=Fail(Exception("err")))
+    result = chain.then(lambda: Ok(42))
+    reveal_type(result)  # N: Revealed type is .*NeutralActionStart.*
+
+- case: neutral_chain_full_path_returns_action_chain
+  description: NeutralActionStart → .failure() → .success() → .execute() returns ActionChain
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import NeutralActionStart, ActionChain
+    from ocarina.railway.result import Fail
+
+    result: ActionChain[int] = (
+        NeutralActionStart[int](result=Fail(Exception("err")))
+        .failure(lambda e: None)
+        .success(lambda: None)
+        .execute()
+    )
+    reveal_type(result)  # N: Revealed type is .*ActionChain.*
+
+- case: chain_actions_returns_chain_runner
+  description: chain_actions() returns ChainRunner[T]
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.dsl.testing_with_railway.chain_actions import chain_actions, ChainRunner
+    from ocarina.railway.result import Ok
+
+    a1 = ActionStart(lambda: Ok(1)).failure(lambda e: None).success(lambda: None)
+    a2 = ActionStart(lambda: Ok(2)).failure(lambda e: None).success(lambda: None)
+    result = chain_actions(a1, a2)
+    reveal_type(result)  # N: Revealed type is .*ChainRunner\[.*int.*\]
+
+- case: chain_runner_run_returns_action_chain
+  description: ChainRunner.run() returns ActionChain[T]
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.dsl.testing_with_railway.chain_actions import chain_actions
+    from ocarina.railway.result import Ok
+
+    runner = chain_actions(
+        ActionStart(lambda: Ok(0)).failure(lambda e: None).success(lambda: None)
+    )
+    result = runner.run()
+    reveal_type(result)  # N: Revealed type is .*ActionChain\[.*int.*\]
+
+- case: has_failed_and_is_ok_return_bool
+  description: ActionChain.has_failed() and .is_ok() return bool
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionChain
+    from ocarina.railway.result import Ok
+
+    chain = ActionChain(has_failed=False, result=Ok(1))
+    reveal_type(chain.has_failed())  # N: Revealed type is .*bool.*
+    reveal_type(chain.is_ok())       # N: Revealed type is .*bool.*
+
+
+# Failure
+
+- case: execute_on_action_start_not_allowed
+  description: .execute() is not available on ActionStart (missing handlers)
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.railway.result import Ok
+
+    ActionStart(lambda: Ok(42)).execute()
+  out: |
+    main:4: error: .* has no attribute "execute".*
+
+- case: execute_on_action_failure_not_allowed
+  description: .execute() is not available on ActionFailure (missing success handler)
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.railway.result import Ok
+
+    ActionStart(lambda: Ok(42)).failure(lambda e: None).execute()
+  out: |
+    main:4: error: .* has no attribute "execute".*
+
+- case: failure_handler_wrong_signature
+  description: .failure() rejects a non-callable
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.railway.result import Ok
+
+    bad_handler: str = "not a callable"
+    ActionStart(lambda: Ok(42)).failure(bad_handler)
+  out: |
+    main:5: error: .* incompatible type.*
+
+- case: failure_handler_wrong_param_type
+  description: .failure() rejects a def handler with wrong parameter type
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.railway.result import Ok
+
+    def handle_str(s: str) -> None:
+        pass
+
+    ActionStart(lambda: Ok(42)).failure(handle_str)
+  out: |
+    main:7: error: .* incompatible type.*
+
+- case: success_handler_wrong_signature
+  description: .success() rejects a non-callable
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.railway.result import Ok
+
+    bad_handler: str = "not a callable"
+    ActionStart(lambda: Ok(42)).failure(lambda e: None).success(bad_handler)
+  out: |
+    main:5: error: .* incompatible type.*
+
+- case: success_handler_wrong_param_type
+  description: .success() rejects a def handler that expects an argument
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.railway.result import Ok
+
+    def handle_with_arg(x: int) -> None:
+        pass
+
+    ActionStart(lambda: Ok(42)).failure(lambda e: None).success(handle_with_arg)
+  out: |
+    main:7: error: .* incompatible type.*
+
+- case: chain_actions_mixed_types_rejected
+  # mypy limitation: mixed types cause inference failure rather than a clean incompatible type error.
+  description: chain_actions rejects ActionSuccess of incompatible types
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionStart
+    from ocarina.dsl.testing_with_railway.chain_actions import chain_actions
+    from ocarina.railway.result import Ok
+
+    a_int = ActionStart(lambda: Ok(1)).failure(lambda e: None).success(lambda: None)
+    a_str = ActionStart(lambda: Ok("x")).failure(lambda e: None).success(lambda: None)
+    chain_actions(a_int, a_str)
+  out: |
+    main:7: error: .*[Cc]annot infer.*
+
+- case: then_wrong_action_type
+  description: ActionChain.then() rejects a def action of incompatible type
+  regex: true
+  main: |
+    from ocarina.dsl.testing_with_railway.internals.action_chain import ActionChain
+    from ocarina.railway.result import Ok
+
+    def str_action() -> Ok[str]:
+        return Ok("wrong")
+
+    chain: ActionChain[int] = ActionChain(has_failed=False, result=Ok(1))
+    chain.then(str_action)
+  out: |
+    main:8: error: .* incompatible type.*

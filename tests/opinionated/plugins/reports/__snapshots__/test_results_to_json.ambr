@@ -1,0 +1,70 @@
+# serializer version: 1
+# name: test_empty_campaign_fully_omitted
+  dict({
+    'Active campaign': dict({
+      'Suite C': dict({
+        'Test 1': list([
+          dict({
+            'status': 'success',
+          }),
+          1,
+          '_name',
+        ]),
+      }),
+    }),
+  })
+# ---
+# name: test_empty_suite_omitted_but_campaign_written
+  dict({
+    'Campaign A': dict({
+      'Suite with tests': dict({
+        'Test 1': list([
+          dict({
+            'status': 'success',
+          }),
+          1,
+          '_name',
+        ]),
+      }),
+    }),
+  })
+# ---
+# name: test_full_results_serialize_correctly
+  dict({
+    'Campaign': dict({
+      'Active suite': dict({
+        'T1': list([
+          dict({
+            'status': 'success',
+          }),
+          1,
+          '_name',
+        ]),
+        'T2': list([
+          dict({
+            'error': 'Something went wrong',
+            'status': 'fail',
+          }),
+          1,
+          '_name',
+        ]),
+        'T3': list([
+          None,
+          -1,
+          '_name',
+        ]),
+      }),
+    }),
+  })
+# ---
+# name: test_nothing_written_when_all_suites_empty
+  _CallList([
+    _Call(
+      tuple(
+        'No test results to write.',
+      ),
+      dict({
+      }),
+    ),
+  ])
+# ---

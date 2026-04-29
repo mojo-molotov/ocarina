@@ -1,0 +1,112 @@
+[project]
+name = "ocarina"
+version = "1.0.0"
+description = "Websites test framework for Igor"
+requires-python = ">=3.14"
+authors = [
+  { name="Igor Casanova", email="igor.casanova@gmx.fr" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+readme = "README.md"
+
+dependencies = ["python-docx>=1.2.0"]
+
+[project.urls]
+Homepage = "https://github.com/mojo-molotov/ocarina"
+Issues = "https://github.com/mojo-molotov/ocarina/issues"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.0",
+    "mypy>=1.17.0",
+    "mypy-extensions>=1.1.0",
+    "typing-extensions>=4.14.0",
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "hypothesis>=6.151.0",
+    "pytest-mypy-plugins>=3.1.0",
+    "allure-pytest>=2.15.3",
+    "allure-python-commons>=2.15.3",
+    "pre-commit>=4.5.1",
+    "syrupy>=5.1.0",
+    "selenium>=4.40.0",
+    "twine>=6.2.0",
+    "build>=1.4.2",
+    "prysk>=0.20.0",
+]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # "B008",  # * ... NEVER ignore this rule without knowing very well what you are doing: https://docs.astral.sh/ruff/rules/function-call-in-default-argument/
+    "ANN002",
+    "ANN003",
+    "ANN201",
+    "TRY003",
+    "C901",
+    "D203",    # * ... Ignore incorrect-blank-line-before-class to avoid conflict with D211
+    "D213",    # * ... Ignore multi-line-summary-second-line to avoid conflict with D212
+    "COM812",  # * ... Ignore COM812 to prevent conflicts with Ruff's formatter (auto-fix)
+]
+
+[tool.ruff]
+exclude = ["**/.venv/**", "**/bin/**", "**/__init__.py", "**/__bypass_linter__"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+norecursedirs = [".*", "__pycache__"]
+log_cli = true
+log_cli_level = "DEBUG"
+log_cli_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+addopts = """
+--cov=src
+--cov-branch
+--cov-report=term-missing
+--cov-report=html
+--cov-report=xml:coverage.xml
+"""
+
+[tool.coverage.run]
+omit = [
+    "*/__init__.py",
+    "*/tests/*",
+    "*/test_*.py",
+    "src/ocarina/custom_errors/*",
+    "src/ocarina/custom_types/*",
+    "src/ocarina/ports/*",
+    "src/ocarina/opinionated/loggers/custom_types/*",
+    "src/**/*singleton.py",
+    "src/**/consts/**",
+    # Selenium adapter layer — exercised only against a real browser.
+    "src/ocarina/infra/selenium/*",
+    "src/ocarina/dsl/testing/selenium/*",
+    "src/ocarina/opinionated/cli/selenium/*",
+    "src/ocarina/pom/selenium/muted.py",
+    "src/ocarina/opinionated/cli/phantoms.py",
+    # Opinionated loggers — only file_logger.py stays in scope.
+    "src/ocarina/opinionated/loggers/create_matching_logger.py",
+    "src/ocarina/opinionated/loggers/muted_logger.py",
+    "src/ocarina/opinionated/loggers/print_logger.py",
+    "src/ocarina/opinionated/loggers/print_and_file_logger.py",
+    "src/ocarina/opinionated/loggers/utils/*",
+    # Traversed by cram tests
+    "src/ocarina/opinionated/cli/store.py",
+    "src/ocarina/opinionated/cli/builder.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+skip_empty = true
+precision = 2
+
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"

@@ -1,0 +1,167 @@
+# Success
+- case: compatible_predicate_types
+  description: Predicates should accept values of compatible types
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_email, is_positive
+    
+    validate(1234).assert_that(is_positive)
+    validate("a@a.com").assert_that(is_email)
+
+- case: generics_preserved_through_chain
+  description: Generic type parameter T should be preserved across validation chain
+  regex: true
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_not_zero
+    
+    result = validate(42).assert_that(is_positive)
+    reveal_type(result)  # N: Revealed type is .*ValidationAssertBlock\[.*int.*\]
+
+- case: then_allows_type_change
+  description: .then() should allow switching to a different type in the validation chain
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_email
+    
+    validate(42).assert_that(is_positive).then("email@test.com").assert_that(is_email)
+
+- case: otherwise_with_same_type
+  description: .otherwise() should accept predicates of the same type
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_not_zero
+    
+    validate(5).assert_that(is_positive).otherwise(is_not_zero)
+
+- case: multiple_otherwise_preserves_type
+  description: Multiple .otherwise() calls should preserve the same type throughout
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_not_zero, is_equal_to
+    
+    validate(5) \
+        .assert_that(is_equal_to(10)) \
+        .otherwise(is_equal_to(20)) \
+        .otherwise(is_positive) \
+        .otherwise(is_not_zero)
+
+- case: execute_returns_result_type
+  description: .execute() should return ValidationResult regardless of validated type
+  regex: true
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_email
+    
+    result_int = validate(42).assert_that(is_positive).execute()
+    result_str = validate("test@test.com").assert_that(is_email).execute()
+    
+    reveal_type(result_int)  # N: Revealed type is .*ValidationResult.*
+    reveal_type(result_str)  # N: Revealed type is .*ValidationResult.*
+
+- case: complex_chain_with_multiple_type_changes
+  description: Complex chains with multiple .then() and .otherwise() should track types correctly
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_not_zero, is_email, is_str
+    
+    validate(42) \
+        .assert_that(is_positive) \
+        .otherwise(is_not_zero) \
+        .then("test@example.com") \
+        .assert_that(is_str) \
+        .assert_that(is_email) \
+        .then(100) \
+        .assert_that(is_positive)
+
+- case: chain_validations_merges_compatible_chains
+  description: chain_validations should merge multiple validation chains successfully
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.internals.validation_chain import chain_validations
+    from ocarina.dsl.invariants.assertions import is_positive, is_email
+    
+    chain1 = validate(42).assert_that(is_positive)
+    chain2 = validate("test@test.com").assert_that(is_email)
+    
+    merged = chain_validations(chain1, chain2)
+    result = merged.execute()
+
+# Failure
+- case: execute_without_predicate
+  description: Predicates should reject values of incompatible types
+  regex: true
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_email, is_positive
+    
+    validate(1234).execute()
+  out: |
+    main:4: error: .* has no attribute "execute" .*
+
+- case: incompatible_predicate_type
+  description: Predicates should reject values of incompatible types
+  regex: true
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_email, is_positive
+    
+    validate(1234).assert_that(is_email)
+    validate(1234).assert_that(is_positive).assert_that(is_email)
+  out: |
+    main:4: error: .* incompatible type .*
+    main:5: error: .* incompatible type .*
+
+- case: then_rejects_wrong_predicate_type
+  description: .then() should reject predicates incompatible with new value type
+  regex: true
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_email
+    
+    validate(42).assert_that(is_positive).then("email").assert_that(is_positive)
+  out: |
+    main:4: error: .* incompatible type .*
+
+- case: otherwise_rejects_different_type
+  description: .otherwise() should reject predicates of different types
+  regex: true
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_not_zero, is_email
+    
+    validate(5).assert_that(is_email).otherwise(is_positive)
+    validate("test").assert_that(is_email).otherwise(is_not_zero)
+  out: |
+    main:4: error: .* incompatible type .*
+    main:5: error: .* incompatible type .*
+
+- case: multiple_otherwise_rejects_type_mismatch
+  description: Type errors in multiple .otherwise() chain should be caught
+  regex: true
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_not_zero, is_equal_to, is_email
+    
+    validate(5) \
+        .assert_that(is_equal_to(10)) \
+        .otherwise(is_positive) \
+        .otherwise(is_email)
+  out: |
+    main:7: error: .* incompatible type .*
+
+- case: complex_chain_type_error_in_middle
+  description: Type errors in complex chains should be caught at the violation point
+  regex: true
+  main: |
+    from ocarina.dsl.invariants.validate import validate
+    from ocarina.dsl.invariants.assertions import is_positive, is_email, is_str
+    
+    validate(42) \
+        .assert_that(is_positive) \
+        .then("test@example.com") \
+        .assert_that(is_str) \
+        .then(100) \
+        .assert_that(is_email)
+  out: |
+    main:9: error: .* incompatible type .*

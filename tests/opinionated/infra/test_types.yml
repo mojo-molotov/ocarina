@@ -1,0 +1,167 @@
+# Success
+- case: valid_cred_key_is_accepted
+  description: get_credentials should accept a valid Literal key
+  main: |
+    from typing import Literal
+    from types import MappingProxyType
+    from ocarina.opinionated.infra.env import EnvGetters, ImmutableCredentials
+
+    type CredKeys = Literal["intranet", "api"]
+    type ValueKeys = Literal["fullname"]
+
+    env: EnvGetters[CredKeys, ValueKeys] = EnvGetters(
+        credentials={
+            "intranet": MappingProxyType({"login": "a", "password": "b"}),
+            "api": MappingProxyType({"login": "c", "password": "d"}),
+        },
+        values={"fullname": "John Doe"},
+    )
+    env.get_credentials("intranet")
+    env.get_credentials("api")
+
+- case: valid_value_key_is_accepted
+  description: get_value should accept a valid Literal key
+  main: |
+    from typing import Literal
+    from types import MappingProxyType
+    from ocarina.opinionated.infra.env import EnvGetters
+
+    type CredKeys = Literal["intranet"]
+    type ValueKeys = Literal["fullname"]
+
+    env: EnvGetters[CredKeys, ValueKeys] = EnvGetters(
+        credentials={"intranet": MappingProxyType({"login": "a", "password": "b"})},
+        values={"fullname": "John Doe"},
+    )
+    env.get_value("fullname")
+
+- case: get_credentials_returns_immutable_credentials
+  description: get_credentials return type should be ImmutableCredentials
+  regex: true
+  main: |
+    from typing import Literal
+    from types import MappingProxyType
+    from ocarina.opinionated.infra.env import EnvGetters
+
+    type CredKeys = Literal["intranet"]
+
+    env: EnvGetters[CredKeys, str] = EnvGetters(
+        credentials={"intranet": MappingProxyType({"login": "a", "password": "b"})},
+    )
+    result = env.get_credentials("intranet")
+    reveal_type(result)  # N: Revealed type is .*MappingProxyType.*
+
+- case: get_value_returns_str
+  description: get_value return type should be str
+  regex: true
+  main: |
+    from typing import Literal
+    from types import MappingProxyType
+    from ocarina.opinionated.infra.env import EnvGetters
+
+    type CredKeys = Literal["intranet"]
+    type ValueKeys = Literal["fullname"]
+
+    env: EnvGetters[CredKeys, ValueKeys] = EnvGetters(
+        credentials={"intranet": MappingProxyType({"login": "a", "password": "b"})},
+        values={"fullname": "John Doe"},
+    )
+    result = env.get_value("fullname")
+    reveal_type(result)  # N: Revealed type is "(builtins\.)?str"
+
+- case: credentials_only_no_values
+  description: EnvGetters should be constructible with only credentials
+  main: |
+    from typing import Literal
+    from types import MappingProxyType
+    from ocarina.opinionated.infra.env import EnvGetters
+
+    type CredKeys = Literal["intranet"]
+
+    env: EnvGetters[CredKeys, str] = EnvGetters(
+        credentials={"intranet": MappingProxyType({"login": "a", "password": "b"})},
+    )
+    env.get_credentials("intranet")
+
+- case: values_only_no_credentials
+  description: EnvGetters should be constructible with only values
+  main: |
+    from typing import Literal
+    from ocarina.opinionated.infra.env import EnvGetters
+
+    type ValueKeys = Literal["fullname"]
+
+    env: EnvGetters[str, ValueKeys] = EnvGetters(
+        values={"fullname": "John Doe"},
+    )
+    env.get_value("fullname")
+
+- case: no_params_at_all
+  description: EnvGetters should be constructible with no arguments
+  main: |
+    from ocarina.opinionated.infra.env import EnvGetters
+
+    EnvGetters()
+
+- case: tkeys_inferred_from_factory_return_type
+  description: TCredKeys and TValueKeys should be inferred from factory return type annotation
+  regex: true
+  main: |
+    from typing import Literal
+    from types import MappingProxyType
+    from ocarina.opinionated.infra.env import EnvGetters
+
+    type CredKeys = Literal["intranet", "api"]
+    type ValueKeys = Literal["fullname"]
+
+    def create_env() -> EnvGetters[CredKeys, ValueKeys]:
+        return EnvGetters(
+            credentials={
+                "intranet": MappingProxyType({"login": "a", "password": "b"}),
+                "api": MappingProxyType({"login": "c", "password": "d"}),
+            },
+            values={"fullname": "John Doe"},
+        )
+
+    env = create_env()
+    reveal_type(env)  # N: Revealed type is .*EnvGetters\[.*intranet.*api.*fullname.*\].*
+
+# Failure
+- case: invalid_cred_key_is_rejected
+  description: get_credentials should reject a key not in Literal
+  regex: true
+  main: |
+    from typing import Literal
+    from types import MappingProxyType
+    from ocarina.opinionated.infra.env import EnvGetters
+
+    type CredKeys = Literal["intranet", "api"]
+
+    env: EnvGetters[CredKeys, str] = EnvGetters(
+        credentials={
+            "intranet": MappingProxyType({"login": "a", "password": "b"}),
+            "api": MappingProxyType({"login": "c", "password": "d"}),
+        },
+    )
+    env.get_credentials("unknown")
+  out: |
+    main:13: error: .* incompatible type .*
+
+- case: invalid_value_key_is_rejected
+  description: get_value should reject a key not in Literal
+  regex: true
+  main: |
+    from typing import Literal
+    from types import MappingProxyType
+    from ocarina.opinionated.infra.env import EnvGetters
+
+    type CredKeys = Literal["intranet"]
+    type ValueKeys = Literal["fullname"]
+
+    env: EnvGetters[CredKeys, ValueKeys] = EnvGetters(
+        credentials={"intranet": MappingProxyType({"login": "a", "password": "b"})},
+        values={"fullname": "John Doe"},
+    )
+    env.get_value("typo")
+  out: |
+    main:12: error: .* incompatible type .*

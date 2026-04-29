@@ -1,0 +1,71 @@
+name: Dev branch CI
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: "ubuntu-latest"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Cache virtual environment
+        id: cache-venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-
+
+      - name: Set venv paths (Linux/macOS)
+        run: |
+          echo "VENV_BIN=.venv/bin" >> $GITHUB_ENV
+          echo "VENV_PYTHON=.venv/bin/python" >> $GITHUB_ENV
+          echo "VENV_PIP=.venv/bin/pip" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        if: steps.cache-venv.outputs.cache-hit != 'true'
+        run: make install-on-ci
+
+      - name: Verify venv (fallback install)
+        run: |
+          if [ ! -f $VENV_PYTHON ] || [ ! -f $VENV_PIP ]; then
+            echo "⚠️ Venv incomplete, reinstalling..."
+            rm -rf .venv
+            make install-on-ci
+          fi
+
+      - name: Create activate venv command (Linux/macOS)
+        run: echo "VENV_ACTIVATE=.venv/bin/activate" >> $GITHUB_ENV
+
+      - name: Check coding style
+        run: |
+          source $VENV_ACTIVATE
+          make check-coding-style
+
+      - name: Run tests
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          source $VENV_ACTIVATE
+          make test

@@ -1,0 +1,107 @@
+name: Unstable Python Full Build
+
+on:
+  schedule:
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  full-unstable-build:
+    if: github.ref == 'refs/heads/main'
+    name: Python 3.15-dev on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.15-dev
+        uses: actions/setup-python@v6
+        with:
+          python-version: 3.15-dev
+          allow-prereleases: true
+          cache: pip
+
+      - name: Set venv paths (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "VENV_BIN=.venv/Scripts" >> $GITHUB_ENV
+          echo "VENV_PYTHON=.venv/Scripts/python.exe" >> $GITHUB_ENV
+          echo "VENV_PIP=.venv/Scripts/pip.exe" >> $GITHUB_ENV
+
+      - name: Set venv paths (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          echo "VENV_BIN=.venv/bin" >> $GITHUB_ENV
+          echo "VENV_PYTHON=.venv/bin/python" >> $GITHUB_ENV
+          echo "VENV_PIP=.venv/bin/pip" >> $GITHUB_ENV
+
+      - name: Install dependencies (full build)
+        run: make install-on-ci
+
+      - name: Create activate venv command (Windows)
+        if: runner.os == 'Windows'
+        run: echo "VENV_ACTIVATE=.venv/Scripts/activate" >> $GITHUB_ENV
+
+      - name: Create activate venv command (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: echo "VENV_ACTIVATE=.venv/bin/activate" >> $GITHUB_ENV
+
+      - name: Check coding style
+        run: |
+          source $VENV_ACTIVATE
+          make check-coding-style
+
+      - name: Run tests
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          source $VENV_ACTIVATE
+          make test
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: allure-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: allure-results/
+          retention-days: 1
+
+  allure-history:
+    name: Update Allure History
+    needs: full-unstable-build
+    if: always()
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: allure-history-push
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download all test results
+        uses: actions/download-artifact@v8
+        with:
+          pattern: allure-results-*
+          path: allure-results
+          merge-multiple: true
+
+      - name: Manage Allure
+        uses: ./.github/actions/allure-history
+        with:
+          branch-name: allure-history

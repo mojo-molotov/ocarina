@@ -1,0 +1,193 @@
+name: Main branch CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+        python_versions:
+          description: 'Python versions to test'
+          type: choice
+          required: false
+          default: 'Stable only'
+          options:
+            - 'Stable only'
+            - 'Stable + unstable (uses pre-built wheels)'
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      python_stable: ${{ steps.versions.outputs.python_stable }}
+      python_unstable: ${{ steps.versions.outputs.python_unstable }}
+    steps:
+      - id: versions
+        run: |
+          echo "python_stable=3.14" >> $GITHUB_OUTPUT
+          echo "python_unstable=3.15-dev" >> $GITHUB_OUTPUT
+
+  test:
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    needs: setup
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.python-version == needs.setup.outputs.python_unstable }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ${{ contains(github.event.inputs.python_versions, 'unstable') && fromJSON(format('["{0}", "{1}"]', needs.setup.outputs.python_stable, needs.setup.outputs.python_unstable)) || fromJSON(format('["{0}"]', needs.setup.outputs.python_stable)) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: ${{ matrix.python-version == needs.setup.outputs.python_unstable && 'pip' || '' }}
+
+      - name: Cache virtual environment
+        if: matrix.python-version == needs.setup.outputs.python_stable
+        id: cache-venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-
+
+      - name: Set venv paths (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "VENV_BIN=.venv/Scripts" >> $GITHUB_ENV
+          echo "VENV_PYTHON=.venv/Scripts/python.exe" >> $GITHUB_ENV
+          echo "VENV_PIP=.venv/Scripts/pip.exe" >> $GITHUB_ENV
+
+      - name: Set venv paths (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          echo "VENV_BIN=.venv/bin" >> $GITHUB_ENV
+          echo "VENV_PYTHON=.venv/bin/python" >> $GITHUB_ENV
+          echo "VENV_PIP=.venv/bin/pip" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        if: matrix.python-version == needs.setup.outputs.python_unstable || steps.cache-venv.outputs.cache-hit != 'true'
+        run: |
+          if [ "${{ matrix.python-version }}" = "${{ needs.setup.outputs.python_unstable }}" ]; then
+            PIP_ONLY_BINARY=":all:" make install-on-ci
+          else
+            make install-on-ci
+          fi
+
+      - name: Verify venv (fallback install)
+        if: matrix.python-version == needs.setup.outputs.python_stable
+        run: |
+          if [ ! -f $VENV_PYTHON ] || [ ! -f $VENV_PIP ]; then
+            echo "⚠️ Venv incomplete, reinstalling..."
+            rm -rf .venv
+            make install-on-ci
+          fi
+
+      - name: Create activate venv command (Windows)
+        if: runner.os == 'Windows'
+        run: echo "VENV_ACTIVATE=.venv/Scripts/activate" >> $GITHUB_ENV
+
+      - name: Create activate venv command (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: echo "VENV_ACTIVATE=.venv/bin/activate" >> $GITHUB_ENV
+
+      - name: Check coding style
+        run: |
+          source $VENV_ACTIVATE
+          make check-coding-style
+
+      - name: Run tests
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          source $VENV_ACTIVATE
+          make test
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: allure-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: allure-results/
+          retention-days: 1
+
+  allure-history:
+    name: Update Allure History
+    needs: test
+    if: always() && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: allure-history-push
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download all test results
+        uses: actions/download-artifact@v8
+        with:
+          pattern: allure-results-*
+          path: allure-results
+          merge-multiple: true
+
+      - name: Manage Allure
+        uses: ./.github/actions/allure-history
+        with:
+          branch-name: allure-history
+
+  deploy:
+    name: Deploy Allure report to GitHub Pages
+    needs: allure-history
+    if: always() && github.repository_visibility != 'private' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download report
+        uses: actions/download-artifact@v8
+        with:
+          name: allure-report
+          path: allure-report/
+
+      - name: Prepare Pages structure
+        run: |
+          mkdir -p pages-root
+          mv allure-report pages-root/allure-report
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: pages-root/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

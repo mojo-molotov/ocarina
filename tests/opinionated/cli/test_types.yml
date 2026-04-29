@@ -1,0 +1,114 @@
+# Success
+- case: valid_key_accepted_on_set
+  description: set() should accept a valid Literal key
+  main: |
+    from typing import Literal
+    from ocarina.dsl.invariants.assertions import is_positive
+    from ocarina.opinionated.cli.store import CliStore, field
+
+    type MyKeys = Literal["workers", "timeout"]
+
+    store: CliStore[MyKeys] = CliStore(
+        fields={
+            "workers": field(validate=lambda chain: chain.assert_that(is_positive)),
+            "timeout": field(validate=lambda chain: chain.assert_that(is_positive)),
+        }
+    )
+    store.set("workers", 4)
+    store.set("timeout", 30)
+
+- case: valid_key_accepted_on_get
+  description: get() should accept a valid Literal key
+  main: |
+    from typing import Literal
+    from ocarina.dsl.invariants.assertions import is_positive
+    from ocarina.opinionated.cli.store import CliStore, field
+
+    type MyKeys = Literal["workers"]
+
+    store: CliStore[MyKeys] = CliStore(
+        fields={
+            "workers": field(validate=lambda chain: chain.assert_that(is_positive)),
+        }
+    )
+    store.set("workers", 4)
+    store.get("workers")
+
+- case: get_returns_any
+  description: get() should return Any — no mapped types in Python
+  regex: true
+  main: |
+    from typing import Literal
+    from ocarina.dsl.invariants.assertions import is_positive
+    from ocarina.opinionated.cli.store import CliStore, field
+
+    type MyKeys = Literal["workers"]
+
+    store: CliStore[MyKeys] = CliStore(
+        fields={
+            "workers": field(validate=lambda chain: chain.assert_that(is_positive)),
+        }
+    )
+    store.set("workers", 4)
+    result = store.get("workers")
+    reveal_type(result)  # N: Revealed type is "Any"
+
+- case: tkeys_inferred_from_factory_return_type
+  description: TKeys should be inferred from factory return type annotation
+  regex: true
+  main: |
+    from typing import Literal
+    from ocarina.dsl.invariants.assertions import is_positive
+    from ocarina.opinionated.cli.store import CliStore, field
+
+    type MyKeys = Literal["workers", "timeout"]
+
+    def create_store() -> CliStore[MyKeys]:
+        return CliStore(
+            fields={
+                "workers": field(validate=lambda chain: chain.assert_that(is_positive)),
+                "timeout": field(validate=lambda chain: chain.assert_that(is_positive)),
+            }
+        )
+
+    store = create_store()
+    reveal_type(store)  # N: Revealed type is .*CliStore\[.*workers.*timeout.*\].*
+
+# Failure
+- case: invalid_key_rejected_on_set
+  description: set() should reject a key not in Literal
+  regex: true
+  main: |
+    from typing import Literal
+    from ocarina.dsl.invariants.assertions import is_positive
+    from ocarina.opinionated.cli.store import CliStore, field
+
+    type MyKeys = Literal["workers"]
+
+    store: CliStore[MyKeys] = CliStore(
+        fields={
+            "workers": field(validate=lambda chain: chain.assert_that(is_positive)),
+        }
+    )
+    store.set("unknown", 4)
+  out: |
+    main:12: error: .* incompatible type .*
+
+- case: invalid_key_rejected_on_get
+  description: get() should reject a key not in Literal
+  regex: true
+  main: |
+    from typing import Literal
+    from ocarina.dsl.invariants.assertions import is_positive
+    from ocarina.opinionated.cli.store import CliStore, field
+
+    type MyKeys = Literal["workers"]
+
+    store: CliStore[MyKeys] = CliStore(
+        fields={
+            "workers": field(validate=lambda chain: chain.assert_that(is_positive)),
+        }
+    )
+    store.get("unknown")
+  out: |
+    main:12: error: .* incompatible type .*

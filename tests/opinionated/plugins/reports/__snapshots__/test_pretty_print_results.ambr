@@ -1,0 +1,93 @@
+# serializer version: 1
+# name: test_blank_line_between_active_campaigns_only
+  list([
+    '',
+    'Campaign A',
+    '• Suite A',
+    '  › Test 1',
+    '    » PASSED',
+    '',
+    'Campaign C',
+    '• Suite C',
+    '  › Test 2',
+    '    » PASSED',
+    '',
+    'Test results:',
+    '2 PASSED',
+  ])
+# ---
+# name: test_empty_campaign_fully_omitted
+  list([
+    'Active campaign',
+    '• Suite C',
+    '  › Test 1',
+    '    » PASSED',
+    '',
+    'Test results:',
+    '1 PASSED',
+  ])
+# ---
+# name: test_empty_suite_omitted_but_campaign_shown
+  list([
+    'Campaign A',
+    '• Suite with tests',
+    '  › Test 1',
+    '    » PASSED',
+    '',
+    'Test results:',
+    '1 PASSED',
+  ])
+# ---
+# name: test_multiple_active_campaigns_have_leading_blank_line
+  list([
+    '',
+    'Campaign A',
+    '• Suite A',
+    '  › Test 1',
+    '    » PASSED',
+    '',
+    'Campaign B',
+    '• Suite B',
+    '  › Test 2',
+    '    » PASSED',
+    '',
+    'Test results:',
+    '2 PASSED',
+  ])
+# ---
+# name: test_nothing_printed_when_all_suites_empty
+  list([
+  ])
+# ---
+# name: test_only_one_active_campaign_no_leading_blank_line
+  list([
+    'Active campaign',
+    '• Suite B',
+    '  › Test 1',
+    '    » PASSED',
+    '',
+    'Test results:',
+    '1 PASSED',
+  ])
+# ---
+# name: test_summary_absent_when_no_results
+  list([
+  ])
+# ---
+# name: test_summary_counts_only_executed_tests
+  list([
+    'Campaign',
+    '• Active suite',
+    '  › T1',
+    '    » PASSED',
+    '  › T2',
+    '    » FAILED',
+    '      → Something went wrong',
+    '        ⫸ At step 1',
+    '  › T3',
+    '    » SKIPPED',
+    '',
+    'Test results:',
+    '1 FAILED | 1 PASSED | 1 SKIPPED',
+  ])
+# ---
