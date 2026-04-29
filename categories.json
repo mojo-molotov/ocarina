@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Test defects",
+    "matchedStatuses": ["broken"],
+    "messageRegex": ".*"
+  },
+  {
+    "name": "Invariant violations",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*InvariantViolationError.*"
+  },
+  {
+    "name": "Assertion errors",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*AssertionError.*"
+  },
+  {
+    "name": "Skipped",
+    "matchedStatuses": ["skipped"],
+    "messageRegex": ".*"
+  }
+]
