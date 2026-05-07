@@ -2,7 +2,11 @@
 
 from typing import TYPE_CHECKING
 
-from ocarina.dsl.invariants.assertions import has_unique_elements
+from ocarina.dsl.invariants.assertions import (
+    each,
+    has_unique_elements,
+    is_valid_filename,
+)
 from ocarina.dsl.invariants.validate import FrameworkInvariantValidator
 
 if TYPE_CHECKING:
@@ -25,6 +29,9 @@ def _test_runners_names_chain[Driver](
     return chain.assert_that(
         has_unique_elements(key=get_runner_name),
         msg="Test runner names must be unique.",
+    ).assert_that(
+        each(lambda t: is_valid_filename(t.name)),
+        msg="Test runner names must be valid cross-platform filenames.",
     )
 
 

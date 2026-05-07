@@ -20,6 +20,7 @@ validation:
         .raise_if_invalid()
 """
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -423,3 +424,82 @@ def is_truthy(value: Any) -> None:  # noqa: ANN401 -> This is intentional.
     if not value:
         msg = "Value must be truthy."
         raise InvariantViolationError(msg)
+
+
+def is_valid_filename(value: str) -> None:
+    r"""Assert that the string is a valid filename on all major OSes.
+
+    Applies the union of restrictions from Windows, Linux, and macOS:
+    - No forbidden characters: \\ / : * ? " < > | and control chars (U+0000; U+001F)
+    - No leading or trailing dot or space
+    - Not a Windows reserved name (CON, NUL, COM1…COM9, LPT1…LPT9, etc.)
+    - Length between 1 and 255 characters
+
+    Args:
+        value: The filename string to validate.
+
+    Raises:
+        InvariantViolationError: If the string is not a valid cross-platform filename.
+
+    Example:
+        >>> is_valid_filename("my_test_runner")  # OK
+        >>> is_valid_filename("test/run")        # Raises InvariantViolationError
+        >>> is_valid_filename("CON")             # Raises InvariantViolationError
+        >>> is_valid_filename(".hidden")         # Raises InvariantViolationError
+
+    """
+    _forbidden_chars = re.compile(r'[\x00-\x1f\\/:*?"<>|]')
+    _windows_reserved = re.compile(
+        r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE
+    )
+
+    if not value:
+        msg = "Filename must not be empty."
+        raise InvariantViolationError(msg)
+
+    if len(value) > 255:  # noqa: PLR2004
+        msg = f"Filename '{value}' exceeds 255 characters."
+        raise InvariantViolationError(msg)
+
+    if _forbidden_chars.search(value):
+        msg = (
+            f"Filename '{value}' contains forbidden characters"
+            " "
+            '(control chars or one of: \\ / : * ? " < > |).'
+        )
+        raise InvariantViolationError(msg)
+
+    if value[0] in (".", " ") or value[-1] in (".", " "):
+        msg = f"Filename '{value}' must not start or end with a dot or a space."
+        raise InvariantViolationError(msg)
+
+    stem = value.split(".", 1)[0]
+    if _windows_reserved.match(stem):
+        msg = f"Filename '{value}' uses a reserved Windows device name."
+        raise InvariantViolationError(msg)
+
+
+def each(predicate: Predicate[Any]) -> Predicate[Iterable[Any]]:
+    """Create a predicate that applies a predicate to each element of a collection.
+
+    Args:
+        predicate: The predicate to apply to each element.
+
+    Returns:
+        A predicate function that checks each element.
+
+    Raises:
+        InvariantViolationError: If any element fails the predicate.
+
+    Example:
+        >>> check_all_valid = each(is_valid_filename)
+        >>> check_all_valid(["my_test", "other_test"])  # OK
+        >>> check_all_valid(["my_test", "CON"])  # Raises InvariantViolationError
+
+    """
+
+    def unwrapped(value: Iterable[Any]) -> None:
+        for item in value:
+            predicate(item)
+
+    return unwrapped
