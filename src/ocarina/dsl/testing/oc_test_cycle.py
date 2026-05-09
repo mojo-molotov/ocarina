@@ -12,6 +12,10 @@ from ocarina.aggregates.tests_layers import is_test_result_fail
 from ocarina.custom_invariants.testing.oc_test_campaigns_names import (
     validate_campaigns_names,
 )
+from ocarina.custom_invariants.testing.oc_test_cycles_names import (
+    validate_test_cycle_name,
+)
+from ocarina.dsl.invariants.internals.validation_chain import chain_validations
 from ocarina.dsl.testing.oc_test_campaign import (
     TestCampaign,
     campaign_has_failed,
@@ -67,9 +71,12 @@ class TestCycle[Driver]:
 
         smoke_campaigns = smoke_tests_campaigns or []
 
-        validate_campaigns_names(
-            campaigns=[*smoke_campaigns, *campaigns],
-            name="all campaigns (smoke + deep tests)",
+        chain_validations(
+            validate_test_cycle_name(cycle_name=name, name="test_cycle"),
+            validate_campaigns_names(
+                campaigns=[*smoke_campaigns, *campaigns],
+                name="all campaigns (smoke + deep tests)",
+            ),
         ).execute().raise_if_invalid()
 
         self.name = name

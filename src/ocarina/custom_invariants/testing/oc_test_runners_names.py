@@ -1,4 +1,4 @@
-"""Validation of test runner names: must be unique."""
+"""Validation of test runner names: unique and valid cross-platform filenames."""
 
 from typing import TYPE_CHECKING
 
@@ -38,5 +38,5 @@ def _test_runners_names_chain[Driver](
 def validate_test_runners_names[Driver](
     *, tests: Sequence[Test[Driver]], name: str
 ) -> ValidationAssertBlock[Sequence[Test[Driver]]]:
-    """Validate that all test runner names are unique."""
+    """Validate that test runner names are unique and valid cross-platform filenames."""
     return FrameworkInvariantValidator.create(tests, name, _test_runners_names_chain)

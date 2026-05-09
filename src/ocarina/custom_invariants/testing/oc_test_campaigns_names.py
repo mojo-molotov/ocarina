@@ -1,8 +1,12 @@
-"""Validation of campaigns names: must be unique."""
+"""Validation of campaigns names: unique and valid cross-platform filenames."""
 
 from typing import TYPE_CHECKING
 
-from ocarina.dsl.invariants.assertions import has_unique_elements
+from ocarina.dsl.invariants.assertions import (
+    each,
+    has_unique_elements,
+    is_valid_filename,
+)
 from ocarina.dsl.invariants.validate import FrameworkInvariantValidator
 
 if TYPE_CHECKING:
@@ -25,11 +29,14 @@ def _campaigns_names[Driver](
     return chain.assert_that(
         has_unique_elements(key=get_campaign_name),
         msg="Campaigns names must be unique.",
+    ).assert_that(
+        each(lambda c: is_valid_filename(c.name)),
+        msg="Test campaigns names must be valid cross-platform filenames.",
     )
 
 
 def validate_campaigns_names[Driver](
     *, campaigns: Sequence[TestCampaign[Driver]], name: str
 ) -> ValidationAssertBlock[Sequence[TestCampaign[Driver]]]:
-    """Validate that all campaigns names are unique."""
+    """Validate that campaigns names are unique and valid cross-platform filenames."""
     return FrameworkInvariantValidator.create(campaigns, name, _campaigns_names)

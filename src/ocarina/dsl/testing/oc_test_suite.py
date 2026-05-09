@@ -226,6 +226,7 @@ class TestSuite[Driver]:
         flow = self._build_flow()
 
         if max_workers == 1:
+            self._guards_with_mounted_tests(self._tests)
             for test in self._tests:
                 self._results[test.name] = flow.run(test)
         else:
