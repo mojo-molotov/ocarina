@@ -15,6 +15,12 @@ from ocarina.custom_invariants.testing.oc_test_campaigns_names import (
 from ocarina.custom_invariants.testing.oc_test_cycles_names import (
     validate_test_cycle_name,
 )
+from ocarina.custom_invariants.testing.oc_test_runners_names import (
+    validate_test_runners_names,
+)
+from ocarina.custom_invariants.testing.oc_test_suites_names import (
+    validate_test_suites_names,
+)
 from ocarina.dsl.invariants.internals.validation_chain import chain_validations
 from ocarina.dsl.testing.oc_test_campaign import (
     TestCampaign,
@@ -70,14 +76,22 @@ class TestCycle[Driver]:
             mode = "fail-fast-on-first-smoke-campaigns-sequence-fail"
 
         smoke_campaigns = smoke_tests_campaigns or []
+        all_campaigns = [*smoke_campaigns, *campaigns]
 
-        chain_validations(
-            validate_test_cycle_name(cycle_name=name, name="test_cycle"),
-            validate_campaigns_names(
-                campaigns=[*smoke_campaigns, *campaigns],
-                name="all campaigns (smoke + deep tests)",
-            ),
-        ).execute().raise_if_invalid()
+        for campaign in all_campaigns:
+            for suite in campaign._suites:  # noqa: SLF001
+                chain_validations(
+                    validate_test_cycle_name(cycle_name=name, name="test_cycle"),
+                    validate_campaigns_names(
+                        campaigns=all_campaigns,
+                        name="all campaigns (smoke + deep tests)",
+                    ),
+                    validate_test_suites_names(
+                        suites=campaign._suites,  # noqa: SLF001
+                        name="suites",
+                    ),
+                    validate_test_runners_names(tests=suite._tests, name="tests"),  # noqa: SLF001
+                ).execute().raise_if_invalid()
 
         self.name = name
         self._campaigns = campaigns
