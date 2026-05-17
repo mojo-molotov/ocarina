@@ -124,7 +124,7 @@ def chain_actions[T](
 
         def reducer(chain: ActionChain[T], step: ActionSuccess[T]) -> ActionChain[T]:
             """Fold function chaining actions with short-circuit logic."""
-            if chain and chain.has_failed():
+            if chain.has_failed():
                 return chain
 
             return (
