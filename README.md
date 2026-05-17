@@ -35,6 +35,10 @@ Notable features:
 - Python **3.14+**
 - (SELENIUM) A matching WebDriver binary on disk (`chromedriver`, `geckodriver`, `msedgedriver`) for the browser you intend to use. Safari uses the native macOS `safaridriver` and needs no binary on disk.
 
+## Documentation
+
+See [**The Ocarina Holy Book**](https://mojo-molotov.github.io/ocarina-holy-book)
+
 ## Installation
 
 ```bash
@@ -90,6 +94,10 @@ For a complete, runnable project:
 - Chaos scenarios
 
 See [**ocarina-example**](https://github.com/mojo-molotov/ocarina-example).
+
+## Full AI example
+
+See [**ocarina-with-ai-example**](https://github.com/mojo-molotov/ocarina-with-ai-example).
 
 ## Development
 

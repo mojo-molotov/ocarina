@@ -17,6 +17,7 @@ readme = "README.md"
 dependencies = ["python-docx>=1.2.0"]
 
 [project.urls]
+Documentation = "https://mojo-molotov.github.io/ocarina-holy-book"
 Homepage = "https://github.com/mojo-molotov/ocarina"
 Issues = "https://github.com/mojo-molotov/ocarina/issues"
 
