@@ -112,6 +112,10 @@ make serve-htmlcov        # open the HTML coverage report
 make serve-allure         # open the Allure report
 ```
 
+## Misc
+
+[Allure report](https://mojo-molotov.github.io/ocarina/allure-report/)
+
 ## License
 
 MIT — Igor Casanova.
