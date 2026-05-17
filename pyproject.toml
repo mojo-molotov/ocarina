@@ -1,6 +1,6 @@
 [project]
 name = "ocarina"
-version = "1.0.3"
+version = "1.0.4"
 description = "Websites test framework for Igor"
 requires-python = ">=3.14"
 authors = [
