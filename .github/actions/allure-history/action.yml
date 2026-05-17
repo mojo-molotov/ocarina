@@ -27,7 +27,7 @@ runs:
 
     - name: Install Allure
       shell: bash
-      run: pnpm add -g allure-commandline
+      run: pnpm add -g allure-commandline@2.41.0
 
     - name: Restore Allure history
       shell: bash

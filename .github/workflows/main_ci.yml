@@ -19,7 +19,7 @@ on:
             - 'Stable + unstable (uses pre-built wheels)'
 
 permissions:
-  contents: write
+  contents: read
 
 defaults:
   run:
@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .venv
-          key: venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+          key: venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('pyproject.toml', 'requirements.txt', 'requirements-dev.txt', 'requirements-dev.in') }}
           restore-keys: |
             venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-
 
@@ -112,7 +112,7 @@ jobs:
 
       - name: Check coding style
         run: |
-          source $VENV_ACTIVATE
+          . $VENV_ACTIVATE
           make check-coding-style
 
       - name: Run tests
@@ -120,7 +120,7 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
-          source $VENV_ACTIVATE
+          . $VENV_ACTIVATE
           make test
 
       - name: Upload Allure results
@@ -136,6 +136,9 @@ jobs:
     needs: test
     if: always() && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     concurrency:
       group: allure-history-push

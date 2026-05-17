@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 defaults:
   run:
@@ -61,7 +61,7 @@ jobs:
 
       - name: Check coding style
         run: |
-          source $VENV_ACTIVATE
+          . $VENV_ACTIVATE
           make check-coding-style
 
       - name: Run tests
@@ -69,7 +69,7 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
-          source $VENV_ACTIVATE
+          . $VENV_ACTIVATE
           make test
 
       - name: Upload Allure results
@@ -85,6 +85,9 @@ jobs:
     needs: full-unstable-build
     if: always()
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
 
     concurrency:
       group: allure-history-push
