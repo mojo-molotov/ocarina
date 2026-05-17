@@ -24,7 +24,8 @@ mypy-check:
 install-on-ci:
 	@test -d .venv || python -m venv .venv
 	$(VENV_PYTHON) -m pip install --upgrade pip
-	$(VENV_PIP) install -e . --group dev
+	$(VENV_PIP) install -r requirements-dev.txt
+	$(VENV_PIP) install -e . --no-deps
 
 .PHONY: update-snapshots
 update-snapshots:

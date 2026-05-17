@@ -1,0 +1,17 @@
+-r requirements.txt
+ruff>=0.15.0
+mypy>=1.17.0
+mypy-extensions>=1.1.0
+typing-extensions>=4.14.0
+pytest>=9.0.0
+pytest-cov>=7.0.0
+hypothesis>=6.151.0
+pytest-mypy-plugins>=3.1.0
+allure-pytest>=2.15.3
+allure-python-commons>=2.15.3
+pre-commit>=4.5.1
+syrupy>=5.1.0
+selenium>=4.40.0
+twine>=6.2.0
+build>=1.4.2
+prysk>=0.20.0
