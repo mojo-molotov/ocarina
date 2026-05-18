@@ -111,7 +111,7 @@ class TestFlow[Driver]:
             last_result = outcome.result
             last_steps_count = outcome.steps_count
 
-            if outcome.should_retry and attempt < max_attempts:
+            if outcome.should_retry and attempt <= max_attempts:
                 logger_with_taxonomy.cleanup()
                 time.sleep(attempt)
                 continue
