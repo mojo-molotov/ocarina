@@ -286,3 +286,46 @@ def test_unknown_ids_warn_not_fatal() -> None:  # noqa: D103
     results = suite.run(max_workers=1, saturate_workers=False)
 
     assert list(results.keys()) == ["t1"]
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("suite", "retry", "nonreg")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.CRITICAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title(  # type: ignore[no-untyped-call,untyped-decorator]
+    "Non-reg: 8 retries == 9 total lives for a test that always crashes transiently"
+)
+def test_eight_retries_yields_nine_total_attempts(  # noqa: D103
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Silence linear backoff: 1+2+...+8 = 36s otherwise.
+    monkeypatch.setattr(
+        "ocarina.dsl.testing.internals.test_flow.time.sleep",
+        lambda _seconds: None,
+    )
+
+    class Flaky(Exception): ...  # noqa: N818
+
+    attempts = {"count": 0}
+
+    def always_flaky(driver: FakeDriver, logger) -> Scenario[FakeDriver]:  # noqa: ANN001, ARG001
+        attempts["count"] += 1
+        pom = RecordingPOM(
+            raise_on={"boom"},
+            raises_with={"boom": Flaky("flaky")},
+        )
+        return Scenario(test_chain=[drive_page(acting(pom, "boom"))])
+
+    suite = make_suite(
+        "s",
+        [make_test("doomed", scenario=always_flaky)],
+        transient_errors=(Flaky,),
+        max_retries_per_test=8,
+    )
+
+    results = suite.run(max_workers=1, saturate_workers=False)
+
+    outcome, _steps, _id = results["doomed"]
+    assert is_test_result_fail(outcome)
+    assert attempts["count"] == 9  # noqa: PLR2004
