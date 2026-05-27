@@ -426,6 +426,12 @@ def is_truthy(value: Any) -> None:  # noqa: ANN401 -> This is intentional.
         raise InvariantViolationError(msg)
 
 
+_forbidden_chars = re.compile(r'[\x00-\x1f\\/:*?"<>|]')
+_windows_reserved = re.compile(
+    r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE
+)
+
+
 def is_valid_filename(value: str) -> None:
     r"""Assert that the string is a valid filename on all major OSes.
 
@@ -448,11 +454,6 @@ def is_valid_filename(value: str) -> None:
         >>> is_valid_filename(".hidden")         # Raises InvariantViolationError
 
     """
-    _forbidden_chars = re.compile(r'[\x00-\x1f\\/:*?"<>|]')
-    _windows_reserved = re.compile(
-        r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE
-    )
-
     if not value:
         msg = "Filename must not be empty."
         raise InvariantViolationError(msg)
