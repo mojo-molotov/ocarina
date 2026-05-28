@@ -41,6 +41,8 @@ filelock==3.29.0
     # via
     #   python-discovery
     #   virtualenv
+greenlet==3.5.1
+    # via playwright
 h11==0.16.0
     # via wsproto
 hypothesis==6.152.7
@@ -113,6 +115,8 @@ platformdirs==4.9.6
     # via
     #   python-discovery
     #   virtualenv
+playwright==1.60.0
+    # via -r requirements-dev.in
 pluggy==1.6.0
     # via
     #   allure-python-commons
@@ -122,6 +126,8 @@ pre-commit==4.6.0
     # via -r requirements-dev.in
 prysk==0.20.0
     # via -r requirements-dev.in
+pyee==13.0.1
+    # via playwright
 pygments==2.20.0
     # via
     #   pytest
@@ -201,6 +207,7 @@ typing-extensions==4.15.0
     #   -r requirements-dev.in
     #   -r requirements.txt
     #   mypy
+    #   pyee
     #   python-docx
     #   selenium
 urllib3[socks]==2.7.0
