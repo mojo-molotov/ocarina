@@ -26,7 +26,7 @@ def create_playwright_watcher(
     callback: Callable[[PlaywrightWatcher], None],
     name: str,
     poll_interval: float | None = None,
-):
+) -> PlaywrightWatcher:
     """Create a driver-free Watcher for Playwright (see module docstring)."""
     return Watcher(
         callback=callback,

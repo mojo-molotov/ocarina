@@ -25,7 +25,7 @@ def create_playwright_test(  # noqa: PLR0913
     post_test_scenarios_fragments: Sequence[TestScenarioFragment[PlaywrightDriver]]
     | None = None,
     skipped: bool = False,
-):
+) -> Test[PlaywrightDriver]:
     """Create a Test bound to Ocarina's PlaywrightDriver."""
     return Test(
         name=name,

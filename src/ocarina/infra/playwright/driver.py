@@ -24,6 +24,7 @@ disposal and the :class:`~ocarina.infra.screenshotter.ScreenshotDriver` protocol
 unchanged.
 """
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from typing import TYPE_CHECKING, final
@@ -73,6 +74,7 @@ class PlaywrightDriver:
         """
         self._default_timeout_ms = wait_timeout * 1000
         self._closed = False
+        self._owner_ident: int | None = None
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="ocarina-pw"
         )
@@ -95,6 +97,7 @@ class PlaywrightDriver:
         user_data_dir: str,
     ) -> Page:
         """Start Playwright and open a persistent context. Runs on owner thread."""
+        self._owner_ident = threading.get_ident()
         self._playwright = sync_playwright().start()
         browser_type = getattr(self._playwright, browser)
         # Persistent context (no standalone Browser): mirrors Selenium always
@@ -117,12 +120,24 @@ class PlaywrightDriver:
         Never return live Playwright objects (Locator, ElementHandle): they are
         bound to the owner thread and unusable elsewhere.
 
+        Re-entrancy is rejected loudly: a ``submit()`` issued from the owner
+        thread (e.g. ``fn`` calling another method that submits) would queue
+        behind the running task and then block on its own ``.result()`` — a
+        silent deadlock. We raise instead, so the failure is named, not a hang.
+
         Raises:
-            RuntimeError: If called after :meth:`quit`.
+            RuntimeError: If called after :meth:`quit`, or re-entrantly from the
+                owner thread.
 
         """
         if self._closed:
             msg = "PlaywrightDriver has been disposed."
+            raise RuntimeError(msg)
+        if threading.get_ident() == self._owner_ident:
+            msg = (
+                "Re-entrant submit() on the owner thread would deadlock. "
+                "You are already on the page thread — call page directly."
+            )
             raise RuntimeError(msg)
         return self._executor.submit(lambda: fn(self._page)).result()
 
@@ -161,7 +176,19 @@ class PlaywrightDriver:
 
         Idempotent. Named ``quit`` so the generic DriverBuilder disposal works
         unchanged.
+
+        Raises:
+            RuntimeError: If called from the owner thread, where submitting the
+                teardown and awaiting it would deadlock. Disposal happens from a
+                worker thread in normal flow.
+
         """
+        if threading.get_ident() == self._owner_ident:
+            msg = (
+                "quit() called from the owner thread would deadlock. "
+                "Dispose the driver from outside a page callback."
+            )
+            raise RuntimeError(msg)
         if self._closed:
             return
         self._closed = True

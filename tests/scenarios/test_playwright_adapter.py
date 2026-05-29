@@ -141,6 +141,16 @@ def test_screenshotter_writes_file(tmp_path: Path) -> None:
         dispose()
 
 
+def test_reentrant_submit_raises_instead_of_deadlocking() -> None:
+    """A submit() issued from inside a page callback fails loud, never hangs."""
+    driver, dispose = _build_driver(wait_timeout=_WAIT_TIMEOUT_S)
+    try:
+        with pytest.raises(RuntimeError, match="Re-entrant submit"):
+            driver.submit(lambda _page: driver.submit(lambda _inner: None))
+    finally:
+        dispose()
+
+
 def _build_driver(
     *, wait_timeout: int
 ) -> tuple[PlaywrightDriver, Callable[[], None]]:
