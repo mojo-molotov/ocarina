@@ -22,12 +22,18 @@ def create_playwright_drivers_pool(  # noqa: PLR0913
     profile_path: str | None = None,
     tmp_dir_prefix: str = ".playwright_profile_",
     warmup_timeout: float | None = None,
+    record_video_dir: str | None = None,
+    trace_dir: str | None = None,
 ) -> PlaywrightDriversPool:
     """Create a WebDriversPool backed by Playwright.
 
     Each driver owns a private thread (see PlaywrightDriver), so warmup is
     safe: a driver created in the warmup thread can be consumed by any worker
     thread because all Playwright calls are marshalled onto the owner thread.
+
+    ``record_video_dir`` and ``trace_dir`` are opt-in artifact options forwarded
+    to every driver in the pool (off by default). Each driver writes its own
+    uniquely-named trace/video, so per-test artifacts do not collide.
     """
     drivers_pool = WebDriversPool(
         create_driver=lambda: create_playwright_driver(
@@ -36,6 +42,8 @@ def create_playwright_drivers_pool(  # noqa: PLR0913
             wait_timeout=wait_timeout,
             profile_path=profile_path,
             tmp_dir_prefix=tmp_dir_prefix,
+            record_video_dir=record_video_dir,
+            trace_dir=trace_dir,
         ),
         max_size=max_size,
         warmup_timeout=warmup_timeout,

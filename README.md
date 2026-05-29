@@ -85,15 +85,18 @@ Parsed by [`create_playwright_auto_cli_store`](src/ocarina/opinionated/cli/playw
 | `--wait-timeout` | `10`            | Default auto-wait timeout in seconds (max `60`), set per page.   |
 | `--profile-path` | `None`          | Profile directory; copied into a managed persistent context.     |
 | `--logger`       | `terminal+file` | One of `terminal`, `file`, `terminal+file`, `muted`.             |
+| `--video-dir`    | `None`          | If set, record a session video per driver into this directory.   |
+| `--trace-dir`    | `None`          | If set, write a Playwright trace per driver (`playwright show-trace`). |
 | `--exclude`      | []              | Exclude tests by IDs.                                            |
 | `--only`         | []              | Select tests by IDs.                                             |
 
 ### Playwright adapter notes
 
-The Playwright sync API binds every object to the thread that created it, which would otherwise clash with Ocarina's threaded pool, warmup, and watchers. The adapter confines each session to a private owner thread ([`PlaywrightDriver`](src/ocarina/infra/playwright/driver.py)) and marshals every call onto it, so pools and warmup work unchanged. Page objects drive the browser via `driver.submit(lambda page: ...)`. Two consequences:
+The Playwright sync API binds every object to the thread that created it, which would otherwise clash with Ocarina's threaded pool, warmup, and watchers. The adapter confines each session to a private owner thread ([`PlaywrightDriver`](src/ocarina/infra/playwright/driver.py)) and marshals every call onto it, so pools and warmup work unchanged. Page objects drive the browser via `driver.submit(lambda page: ...)`. Consequences:
 
-- **Watchers must be driver-free** — they run in a separate thread and must not drive the page; use them for out-of-page signals only.
+- **Watchers are observe-only** — a watcher MAY read the page from its callback via `watcher.driver.submit(...)` (marshalled, safe from its daemon thread), but must never mutate it (click/fill), exactly as in Selenium. Reads serialise on the owner thread, so they cost a little at high poll rates.
 - **Per-method timeout override** — `wait_timeout` maps to Playwright's per-page default timeout. For one-off edge cases, prefer the native per-call `timeout=`; to override the default for a whole POM method, decorate it with [`with_timeout`](src/ocarina/pom/playwright/timeout.py), which restores the configured default afterwards.
+- **Debug artifacts (opt-in, off by default)** — pass `record_video_dir` / `trace_dir` to [`create_playwright_driver`](src/ocarina/infra/playwright/create_driver.py) or `create_playwright_drivers_pool` (or `--video-dir` / `--trace-dir`) to capture a per-driver video and/or trace, flushed on disposal. Network interception works today with no extra wiring: `driver.submit(lambda page: page.route(...))` (the route handler runs on the owner thread — use `route`/`request` directly, never a re-entrant `submit`).
 
 ## Reporting
 

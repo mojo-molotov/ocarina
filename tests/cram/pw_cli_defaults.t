@@ -7,5 +7,7 @@ Unset flags fall back to declared defaults (Playwright launcher)
   workers=5
   wait_timeout=10
   logger=terminal+file
+  video_dir=None
+  trace_dir=None
   only=()
   exclude=()

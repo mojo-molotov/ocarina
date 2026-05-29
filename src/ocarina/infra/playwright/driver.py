@@ -25,9 +25,11 @@ unchanged.
 """
 
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
-from typing import TYPE_CHECKING, final
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, final
 
 from playwright.sync_api import sync_playwright
 
@@ -51,13 +53,15 @@ class PlaywrightDriver:
     objects, which are owner-thread bound.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         browser: SupportedPlaywrightBrowser,
         headless: bool,
         wait_timeout: int,
         user_data_dir: str,
+        record_video_dir: str | None = None,
+        trace_dir: str | None = None,
     ) -> None:
         """Spawn the owner thread and boot a persistent browser context on it.
 
@@ -70,11 +74,24 @@ class PlaywrightDriver:
                 method with ``ocarina.pom.playwright.timeout.with_timeout``.
             user_data_dir: Profile directory for the persistent context
                 (supplied by DriverBuilder, cleaned up on dispose).
+            record_video_dir: If set, record a video of the session into this
+                directory. Must be set at context creation (Playwright cannot
+                enable video afterwards); the file is flushed on disposal.
+            trace_dir: If set, capture a Playwright trace (screenshots +
+                snapshots) and write ``trace_<id>.zip`` into this directory on
+                disposal — open it with ``playwright show-trace``.
 
         """
         self._default_timeout_ms = wait_timeout * 1000
         self._closed = False
         self._owner_ident: int | None = None
+        self._record_video_dir = record_video_dir
+        self._trace_dir = trace_dir
+        self._trace_path: str | None = (
+            str(Path(trace_dir) / f"trace_{uuid.uuid4().hex[:8]}.zip")
+            if trace_dir is not None
+            else None
+        )
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="ocarina-pw"
         )
@@ -103,9 +120,14 @@ class PlaywrightDriver:
         # Persistent context (no standalone Browser): mirrors Selenium always
         # routing through a user-data-dir, and lets profiles survive disposal.
         self._browser = None
+        context_kwargs: dict[str, Any] = {"headless": headless}
+        if self._record_video_dir is not None:
+            context_kwargs["record_video_dir"] = self._record_video_dir
         self._context = browser_type.launch_persistent_context(
-            user_data_dir, headless=headless
+            user_data_dir, **context_kwargs
         )
+        if self._trace_dir is not None:
+            self._context.tracing.start(screenshots=True, snapshots=True)
         pages = self._context.pages
         page = pages[0] if pages else self._context.new_page()
         page.set_default_timeout(self._default_timeout_ms)
@@ -194,6 +216,10 @@ class PlaywrightDriver:
         self._closed = True
 
         def _teardown() -> None:
+            # Tracing must be stopped (and written) before the context closes.
+            if self._trace_path is not None:
+                with suppress(Exception):
+                    self._context.tracing.stop(path=self._trace_path)
             with suppress(Exception):
                 self._context.close()
             with suppress(Exception):

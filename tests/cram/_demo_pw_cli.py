@@ -28,6 +28,8 @@ def main() -> None:
     print(f"workers={store.get('workers')}")
     print(f"wait_timeout={store.get('wait_timeout')}")
     print(f"logger={store.get('logger')}")
+    print(f"video_dir={store.get('video_dir')}")
+    print(f"trace_dir={store.get('trace_dir')}")
     print(f"only={store.get('only')}")
     print(f"exclude={store.get('exclude')}")
 

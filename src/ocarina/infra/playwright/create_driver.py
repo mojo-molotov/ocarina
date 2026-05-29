@@ -20,13 +20,15 @@ _SUPPORTED_BROWSERS: tuple[SupportedPlaywrightBrowser, ...] = (
 )
 
 
-def create_playwright_driver(
+def create_playwright_driver(  # noqa: PLR0913
     *,
     browser: SupportedPlaywrightBrowser,
     headless: bool,
     wait_timeout: int,
     profile_path: str | None = None,
     tmp_dir_prefix: str = ".playwright_profile_",
+    record_video_dir: str | None = None,
+    trace_dir: str | None = None,
 ) -> BuiltPlaywrightDriver:
     """Create a PlaywrightDriver wrapped in a BuiltWebDriver tuple.
 
@@ -35,6 +37,11 @@ def create_playwright_driver(
         so there is no driver-path argument. The browser always runs through a
         persistent context whose user-data-dir is a managed temp directory,
         optionally seeded from ``profile_path``; it is removed on disposal.
+
+        ``record_video_dir`` and ``trace_dir`` are opt-in (off by default): set
+        them to capture a session video and/or a Playwright trace
+        (``trace_<id>.zip``, open with ``playwright show-trace``), both flushed
+        on disposal.
 
     """
     validate(browser, name="browser").assert_that(
@@ -47,6 +54,8 @@ def create_playwright_driver(
             headless=headless,
             wait_timeout=wait_timeout,
             user_data_dir=user_data_dir,
+            record_video_dir=record_video_dir,
+            trace_dir=trace_dir,
         ),
         profile_path=profile_path,
         tmp_dir_prefix=tmp_dir_prefix,

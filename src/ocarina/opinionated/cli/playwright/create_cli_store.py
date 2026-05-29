@@ -38,6 +38,8 @@ type PlaywrightCliStoreKeys = Literal[
     "workers",
     "logger",
     "wait_timeout",
+    "video_dir",
+    "trace_dir",
     "only",
     "exclude",
 ]
@@ -93,6 +95,8 @@ def _create_store() -> CliStore[PlaywrightCliStoreKeys]:
                     .assert_that(is_not_zero, msg="--wait-timeout should not be zero")
                 )
             ),
+            "video_dir": field(validate=phantom_validate),
+            "trace_dir": field(validate=phantom_validate),
             "only": field(validate=phantom_validate),
             "exclude": field(validate=phantom_validate),
         }
@@ -145,6 +149,18 @@ def _create_cli(store: CliStore[PlaywrightCliStoreKeys]) -> CliBuilder:
                 ),
             ),
             CliArg(
+                "--video-dir",
+                type=str,
+                default=None,
+                help="If set, record a session video per driver into this directory",
+            ),
+            CliArg(
+                "--trace-dir",
+                type=str,
+                default=None,
+                help="If set, write a Playwright trace per driver into this directory",
+            ),
+            CliArg(
                 "--only",
                 nargs="+",
                 default=[],
@@ -166,6 +182,8 @@ def _create_cli(store: CliStore[PlaywrightCliStoreKeys]) -> CliBuilder:
             lambda: store.set("workers", ns.workers),
             lambda: store.set("logger", ns.logger),
             lambda: store.set("wait_timeout", ns.wait_timeout),
+            lambda: store.set("video_dir", ns.video_dir),
+            lambda: store.set("trace_dir", ns.trace_dir),
             lambda: store.set("only", tuple(ns.only)),
             lambda: store.set("exclude", tuple(ns.exclude)),
             _create_validate_only_exclude_mutex_effect(ns),

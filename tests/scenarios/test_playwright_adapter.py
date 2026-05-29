@@ -200,6 +200,42 @@ def test_watcher_can_read_page_via_submit(tmp_path: Path) -> None:
         dispose()
 
 
+def test_trace_dir_writes_trace_zip(tmp_path: Path) -> None:
+    """trace_dir produces a non-empty trace_<id>.zip on disposal."""
+    driver, dispose = create_playwright_driver(
+        browser="chromium",
+        headless=True,
+        wait_timeout=_WAIT_TIMEOUT_S,
+        trace_dir=str(tmp_path),
+    )
+    try:
+        driver.submit(lambda page: page.set_content(_PAGE_HTML))
+        driver.submit(lambda page: page.click("#t"))
+    finally:
+        dispose()
+
+    traces = list(tmp_path.glob("trace_*.zip"))
+    assert len(traces) == 1
+    assert traces[0].stat().st_size > 0
+
+
+def test_video_dir_records_session(tmp_path: Path) -> None:
+    """record_video_dir produces a video file once the context closes."""
+    driver, dispose = create_playwright_driver(
+        browser="chromium",
+        headless=True,
+        wait_timeout=_WAIT_TIMEOUT_S,
+        record_video_dir=str(tmp_path),
+    )
+    try:
+        driver.submit(lambda page: page.set_content(_PAGE_HTML))
+        driver.submit(lambda page: page.click("#t"))
+    finally:
+        dispose()
+
+    assert any(tmp_path.glob("*.webm"))
+
+
 def _build_driver(*, wait_timeout: int) -> tuple[PlaywrightDriver, Callable[[], None]]:
     return create_playwright_driver(
         browser="chromium", headless=True, wait_timeout=wait_timeout
