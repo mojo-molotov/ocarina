@@ -88,7 +88,7 @@ class PlaywrightDriver:
         self._record_video_dir = record_video_dir
         self._trace_dir = trace_dir
         self._trace_path: str | None = (
-            str(Path(trace_dir) / f"trace_{uuid.uuid4().hex[:8]}.zip")
+            str(Path(trace_dir) / f"trace_{uuid.uuid4().hex}.zip")
             if trace_dir is not None
             else None
         )
