@@ -8,12 +8,17 @@ browser binary.
 
 # ruff: noqa: S101
 
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import MagicMock
 
 import pytest
 
-from ocarina.infra.playwright.driver import PlaywrightDriver
+from ocarina.infra.playwright.driver import (
+    PlaywrightDriver,
+    _generate_unique_trace_path,
+)
 
 
 def _build_doubled() -> PlaywrightDriver:
@@ -49,3 +54,21 @@ def test_reentrant_submit_raises_without_browser() -> None:
             driver.submit(lambda _page: driver.submit(lambda _inner: None))
     finally:
         driver.quit()
+
+
+def test_trace_name_retries_past_existing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The trace-name generator skips an existing file and keeps names short."""
+    ids = iter(["aaaaaaaa", "aaaaaaaa", "bbbbbbbb"])
+    monkeypatch.setattr(
+        "ocarina.infra.playwright.driver.uuid.uuid4",
+        lambda: SimpleNamespace(hex=next(ids)),
+    )
+    # Pre-create the first id so the generator must retry past it.
+    (tmp_path / "trace_aaaaaaaa.zip").touch()
+
+    result = _generate_unique_trace_path(str(tmp_path))
+
+    assert result == str(tmp_path / "trace_bbbbbbbb.zip")
+    assert len(Path(result).stem) <= len("trace_") + 8  # short, not a 32-char uuid

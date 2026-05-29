@@ -42,6 +42,34 @@ if TYPE_CHECKING:
         SupportedPlaywrightBrowser,
     )
 
+_TRACE_ID_LENGTH = 8
+_MAX_TRACE_NAME_RETRIES = 500
+
+
+def _generate_unique_trace_path(trace_dir: str) -> str:
+    """Pick a free ``trace_<id>.zip`` in ``trace_dir``, retrying on collision.
+
+    Mirrors the screenshotter's filename strategy: a short random id kept
+    collision-free by checking the disk and retrying (up to 500 times), rather
+    than by a long name. Files accumulate — nothing is overwritten or cleaned.
+
+    Raises:
+        RuntimeError: If no free name is found after the retry budget (which,
+            with random ids, means the directory is effectively saturated).
+
+    """
+    directory = Path(trace_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    for _ in range(_MAX_TRACE_NAME_RETRIES):
+        candidate = directory / f"trace_{uuid.uuid4().hex[:_TRACE_ID_LENGTH]}.zip"
+        if not candidate.exists():
+            return str(candidate)
+    msg = (
+        f"Could not generate a unique trace filename in {trace_dir} "
+        f"after {_MAX_TRACE_NAME_RETRIES} attempts."
+    )
+    raise RuntimeError(msg)
+
 
 @final
 class PlaywrightDriver:
@@ -88,9 +116,7 @@ class PlaywrightDriver:
         self._record_video_dir = record_video_dir
         self._trace_dir = trace_dir
         self._trace_path: str | None = (
-            str(Path(trace_dir) / f"trace_{uuid.uuid4().hex}.zip")
-            if trace_dir is not None
-            else None
+            _generate_unique_trace_path(trace_dir) if trace_dir is not None else None
         )
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="ocarina-pw"
