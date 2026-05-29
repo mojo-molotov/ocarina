@@ -104,10 +104,13 @@ class PlaywrightDriver:
                 (supplied by DriverBuilder, cleaned up on dispose).
             record_video_dir: If set, record a video of the session into this
                 directory. Must be set at context creation (Playwright cannot
-                enable video afterwards); the file is flushed on disposal.
+                enable video afterwards); the file is written to disk when the
+                driver is disposed, and kept there afterwards.
             trace_dir: If set, capture a Playwright trace (screenshots +
-                snapshots) and write ``trace_<id>.zip`` into this directory on
-                disposal — open it with ``playwright show-trace``.
+                snapshots) and write ``trace_<id>.zip`` into this directory
+                when the driver is disposed — open it with ``playwright
+                show-trace``. Files accumulate across runs; nothing is
+                overwritten or auto-cleaned.
 
         """
         self._default_timeout_ms = wait_timeout * 1000

@@ -40,8 +40,9 @@ def create_playwright_driver(  # noqa: PLR0913
 
         ``record_video_dir`` and ``trace_dir`` are opt-in (off by default): set
         them to capture a session video and/or a Playwright trace
-        (``trace_<id>.zip``, open with ``playwright show-trace``), both flushed
-        on disposal.
+        (``trace_<id>.zip``, open with ``playwright show-trace``). Both are
+        written to disk when the driver is disposed, kept there, and accumulate
+        across runs — nothing is overwritten or auto-cleaned.
 
     """
     validate(browser, name="browser").assert_that(
