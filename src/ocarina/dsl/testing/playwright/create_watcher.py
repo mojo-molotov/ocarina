@@ -1,12 +1,35 @@
 """Create a Watcher bound to Ocarina's PlaywrightDriver.
 
-Important — Playwright watchers must be *driver-free*.
+A Watcher polls in its own daemon thread, separate from the test chain. A
+Playwright watcher MAY read the page from its callback via
+``watcher.driver.submit(...)`` — the call is marshalled onto the driver's owner
+thread, so it is safe across threads (no greenlet error, no re-entrant
+deadlock). It is not forbidden; it is governed by a convention:
 
-A Watcher polls in its own daemon thread, separate from the test chain. With
-Playwright's sync API the page is owned by a single thread, so a watcher must
-not drive the page. Use Playwright watchers for out-of-page signals only:
-external state, logs, a Redis flag, a clock, etc. For page assertions, keep them
-inside the test chain.
+- OBSERVE, do not MUTATE. The watcher polls concurrently with the test chain;
+  mutating the page (click/fill) from a watcher corrupts the test's state. This
+  holds in every framework, Selenium included — the canonical Selenium watcher
+  only reads (is_visible/get_text). Read-only is the user's responsibility.
+- Always go through ``submit``; never touch ``page`` directly (it is
+  thread-bound to the owner thread).
+- Return FLAT data from the lambda (str/bool/bytes); never a live Locator or
+  ElementHandle (they are bound to the owner thread).
+- Performance caveat: each read serialises on the owner thread alongside the
+  test chain's own ``submit`` calls — contention scales with ``poll_interval``.
+  Selenium watchers, sharing the driver directly, are freer here.
+- ``watcher.report()`` is fine: its screenshot already goes through
+  ITakeScreenshot -> submit, so it is marshalled like any other page read.
+
+Example (read-only observation, reported):
+    >>> def watch_banner(watcher: PlaywrightWatcher) -> None:
+    ...     text = watcher.driver.submit(
+    ...         lambda page: page.inner_text("#cookie-banner")
+    ...         if page.locator("#cookie-banner").count()
+    ...         else ""
+    ...     )
+    ...     if text and text not in watcher.cache:
+    ...         watcher.cache.add(text)
+    ...         watcher.report(f"Cookie banner: {text!r}", label="BANNER")
 """
 
 from typing import TYPE_CHECKING
@@ -27,7 +50,7 @@ def create_playwright_watcher(
     name: str,
     poll_interval: float | None = None,
 ) -> PlaywrightWatcher:
-    """Create a driver-free Watcher for Playwright (see module docstring)."""
+    """Create a Watcher for Playwright (observe-only; see module docstring)."""
     return Watcher(
         callback=callback,
         name=name,

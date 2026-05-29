@@ -16,12 +16,14 @@ so CI without browsers stays green.
 # ruff: noqa: S101
 
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from playwright.sync_api import sync_playwright
 
+from ocarina.dsl.testing.playwright.create_watcher import create_playwright_watcher
 from ocarina.infra.playwright.create_driver import create_playwright_driver
 from ocarina.infra.playwright.create_drivers_pool import (
     create_playwright_drivers_pool,
@@ -37,7 +39,11 @@ from ocarina.pom.playwright.timeout import with_timeout
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from ocarina.dsl.testing.playwright.create_watcher import PlaywrightWatcher
     from ocarina.infra.playwright.driver import PlaywrightDriver
+    from ocarina.ports.ilogger import ILogger
+
+_WATCHER_DEADLINE_S = 5.0
 
 _WAIT_TIMEOUT_S = 10
 _WAIT_TIMEOUT_MS = _WAIT_TIMEOUT_S * 1000
@@ -151,9 +157,50 @@ def test_reentrant_submit_raises_instead_of_deadlocking() -> None:
         dispose()
 
 
-def _build_driver(
-    *, wait_timeout: int
-) -> tuple[PlaywrightDriver, Callable[[], None]]:
+def test_watcher_can_read_page_via_submit(tmp_path: Path) -> None:
+    """A watcher's daemon-thread callback reads the page via submit and reports.
+
+    Proves a Playwright watcher MAY drive reads through watcher.driver.submit
+    without greenlet errors or deadlock, and that report() (which screenshots
+    through ITakeScreenshot -> submit) works from the watcher thread too.
+    """
+    driver, dispose = _build_driver(wait_timeout=_WAIT_TIMEOUT_S)
+    seen: list[str] = []
+    shotter = create_playwright_screenshotter(
+        driver, MutedLogger(), output_dir=tmp_path
+    )
+
+    def take_screenshot(
+        _driver: PlaywrightDriver, _logger: ILogger, label: str
+    ) -> None:
+        shotter.take_screenshot(prefix=label)
+
+    def callback(watcher: PlaywrightWatcher) -> None:
+        title = watcher.driver.submit(lambda page: page.title())
+        if title and title not in watcher.cache:
+            watcher.cache.add(title)
+            seen.append(title)
+            watcher.report(f"watcher saw: {title}", label="PROBE")
+
+    try:
+        driver.submit(lambda page: page.set_content(_PAGE_HTML))
+        watcher = create_playwright_watcher(
+            callback=callback, name="probe", poll_interval=0.2
+        )
+        watcher.start(driver, MutedLogger(), take_screenshot)
+
+        deadline = time.monotonic() + _WATCHER_DEADLINE_S
+        while not seen and time.monotonic() < deadline:
+            time.sleep(0.1)
+        watcher.stop()
+
+        assert seen == ["Ocarina PW"]
+        assert any(tmp_path.glob("PROBE_*.png"))
+    finally:
+        dispose()
+
+
+def _build_driver(*, wait_timeout: int) -> tuple[PlaywrightDriver, Callable[[], None]]:
     return create_playwright_driver(
         browser="chromium", headless=True, wait_timeout=wait_timeout
     )

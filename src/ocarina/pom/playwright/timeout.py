@@ -13,15 +13,16 @@ decorator exists for the case where you want a *whole* method to run under a
 different default without threading ``timeout=`` through every call.
 
 The override and the restore are marshalled onto the driver's single owner
-thread (see :class:`~ocarina.infra.playwright.driver.PlaywrightDriver`). As long
-as the driver-free watcher convention is respected, the page has effectively a
-single caller, so the override and restore bracket the method's page work
-cleanly. This is a convention, not a type-level guarantee: a watcher that
-submits a page action would serialise on the owner thread and could run under
-the overridden timeout between override and restore — keep watchers driver-free
-to avoid that. Each test owns its own driver, so a per-method override never
-leaks across parallel workers. The restore runs in a ``finally`` block, so it
-survives method failures.
+thread (see :class:`~ocarina.infra.playwright.driver.PlaywrightDriver`), so the
+override brackets the method's own page work cleanly. One caveat, not a
+type-level guarantee: a watcher that reads the page via ``submit`` during this
+window serialises on the owner thread and would observe under the overridden
+timeout until the restore runs. That is harmless for observe-only watchers (a
+read just waits a bit longer or shorter); it is only a concern if a watcher
+violates the observe-only convention and mutates the page — which it must not do
+regardless. Each test owns its own driver, so a per-method override never leaks
+across parallel workers. The restore runs in a ``finally`` block, so it survives
+method failures.
 
 Placement: ONLY on POM methods whose class exposes ``self._driver: PlaywrightDriver``.
 Do not use it anywhere else.
