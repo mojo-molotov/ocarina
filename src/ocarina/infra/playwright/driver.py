@@ -98,8 +98,9 @@ class PlaywrightDriver:
             headless: Run without a visible UI.
             wait_timeout: Default auto-wait timeout in seconds. Mapped to
                 Playwright's per-page default timeout (the sync-API analogue
-                of Selenium's implicit wait). Set once here; override per
-                method with ``ocarina.pom.playwright.timeout.with_timeout``.
+                of Selenium's implicit wait). Set once here; for one-off edge
+                cases, use Playwright's per-call ``timeout=`` argument at the
+                call site.
             user_data_dir: Profile directory for the persistent context
                 (supplied by DriverBuilder, cleaned up on dispose).
             record_video_dir: If set, record a video of the session into this
@@ -191,24 +192,6 @@ class PlaywrightDriver:
             )
             raise RuntimeError(msg)
         return self._executor.submit(lambda: fn(self._page)).result()
-
-    @property
-    def default_timeout_ms(self) -> int:
-        """The configured default auto-wait timeout, in milliseconds."""
-        return self._default_timeout_ms
-
-    def set_default_timeout(self, milliseconds: int) -> None:
-        """Override the page's default action/navigation timeout (marshalled)."""
-
-        def _apply(page: Page) -> None:
-            page.set_default_timeout(milliseconds)
-            page.set_default_navigation_timeout(milliseconds)
-
-        self.submit(_apply)
-
-    def reset_default_timeout(self) -> None:
-        """Restore the page default timeout to the configured value."""
-        self.set_default_timeout(self._default_timeout_ms)
 
     def save_screenshot(self, path: str) -> bool:
         """Capture a viewport screenshot. Satisfies the ScreenshotDriver protocol."""
