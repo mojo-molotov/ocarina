@@ -27,13 +27,14 @@ Notable features:
 - Conditional branching via `match_page` for pages that can render in multiple states.
 - Fluent assertion chains via `validate`.
 - Built-in reporters: pretty-print (ANSI), JSON, DOCX proof documents, timing, screenshots.
-- Framework-agnostic `POMBase`; the Selenium integration is one of several possible adapters.
+- Framework-agnostic `POMBase`; Selenium and Playwright integrations ship as adapters.
 - Ships its own test runner: Ocarina is NOT a pytest plugin.
 
 ## Requirements
 
 - Python **3.14+**
 - (SELENIUM) A matching WebDriver binary on disk (`chromedriver`, `geckodriver`, `msedgedriver`) for the browser you intend to use. Safari uses the native macOS `safaridriver` and needs no binary on disk.
+- (PLAYWRIGHT) The Playwright browser binaries, installed once with `playwright install` (no per-browser driver on disk; Playwright bundles its own).
 
 ## Documentation
 
@@ -71,6 +72,31 @@ Parsed by [`create_selenium_auto_cli_store`](src/ocarina/opinionated/cli/seleniu
 | `--dont-force-delete-tmp-dirs` | off             | Skip the post-run cleanup of Selenium temp profiles on Windows. |
 | `--exclude`                    | []              | Exclude tests by IDs.                                           |
 | `--only`                       | []              | Select tests by IDs.                                            |
+
+## CLI flags (opinionated Playwright launcher)
+
+Parsed by [`create_playwright_auto_cli_store`](src/ocarina/opinionated/cli/playwright/create_cli_store.py). Playwright ships its own browsers, so there is no `--driver-path`. Headless mode is the default; use `--not-headless` to opt out.
+
+| Flag             | Default         | Notes                                                            |
+|------------------|-----------------|------------------------------------------------------------------|
+| `--browser`      | *required*      | `chromium`, `firefox`, `webkit` (all platforms).                 |
+| `--not-headless` | off             | Shows the browser UI.                                            |
+| `--workers`      | `5`             | Parallel workers (size of the driver pool).                      |
+| `--wait-timeout` | `10`            | Default auto-wait timeout in seconds (max `60`), set per page.   |
+| `--profile-path` | `None`          | Profile directory; copied into a managed persistent context.     |
+| `--logger`       | `terminal+file` | One of `terminal`, `file`, `terminal+file`, `muted`.             |
+| `--video-dir`    | `None`          | If set, record a session video per driver into this directory.   |
+| `--trace-dir`    | `None`          | If set, write a Playwright trace per driver (`playwright show-trace`). |
+| `--exclude`      | []              | Exclude tests by IDs.                                            |
+| `--only`         | []              | Select tests by IDs.                                             |
+
+### Playwright adapter notes
+
+The Playwright sync API binds every object to the thread that created it, which would otherwise clash with Ocarina's threaded pool, warmup, and watchers. The adapter confines each session to a private owner thread ([`PlaywrightDriver`](src/ocarina/infra/playwright/driver.py)) and marshals every call onto it, so pools and warmup work unchanged. Page objects drive the browser via `driver.submit(lambda page: ...)`. Consequences:
+
+- **Watchers are observe-only** — a watcher MAY read the page from its callback via `watcher.driver.submit(...)` (marshalled, safe from its daemon thread), but must never mutate it (click/fill), exactly as in Selenium. Reads serialise on the owner thread, so they cost a little at high poll rates.
+- **Per-method timeout override** — `wait_timeout` maps to Playwright's per-page default timeout. For one-off edge cases, prefer the native per-call `timeout=`; to override the default for a whole POM method, decorate it with [`with_timeout`](src/ocarina/pom/playwright/timeout.py), which restores the configured default afterwards.
+- **Debug artifacts (opt-in, off by default)** — pass `record_video_dir` / `trace_dir` to [`create_playwright_driver`](src/ocarina/infra/playwright/create_driver.py) or `create_playwright_drivers_pool` (or `--video-dir` / `--trace-dir`) to capture a per-driver video and/or trace. Files are written to disk when the driver is disposed and **kept** — they accumulate across runs, nothing is overwritten or auto-cleaned. Network interception works today with no extra wiring: `driver.submit(lambda page: page.route(...))` (the route handler runs on the owner thread — use `route`/`request` directly, never a re-entrant `submit`).
 
 ## Reporting
 
