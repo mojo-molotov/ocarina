@@ -62,6 +62,18 @@ jobs:
       - name: Create activate venv command (Linux/macOS)
         run: echo "VENV_ACTIVATE=.venv/bin/activate" >> $GITHUB_ENV
 
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements-dev.txt') }}
+
+      - name: Install Playwright browsers
+        run: |
+          . $VENV_ACTIVATE
+          playwright install --with-deps chromium
+
       - name: Check coding style
         run: |
           source $VENV_ACTIVATE
