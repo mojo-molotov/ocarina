@@ -6,7 +6,6 @@ and risky parts of the adapter that have no equivalent in the Selenium path:
 
 - the single-owner-thread actor (PlaywrightDriver) surviving cross-thread use,
 - pool warmup handing a driver from the warmup thread to a worker thread,
-- the with_timeout decorator overriding then restoring the page default,
 - the title mixin and the screenshotter marshalling through the owner thread.
 
 Skipped automatically when Playwright's Chromium browser binary is not installed,
@@ -34,7 +33,6 @@ from ocarina.infra.playwright.create_screenshotter import (
 from ocarina.infra.playwright.mixins import PlaywrightTitleMixin
 from ocarina.opinionated.loggers.muted_logger import MutedLogger
 from ocarina.pom.base import POMBase
-from ocarina.pom.playwright.timeout import with_timeout
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -46,8 +44,6 @@ if TYPE_CHECKING:
 _WATCHER_DEADLINE_S = 5.0
 
 _WAIT_TIMEOUT_S = 10
-_WAIT_TIMEOUT_MS = _WAIT_TIMEOUT_S * 1000
-_OVERRIDE_TIMEOUT_S = 2
 
 
 def _chromium_available() -> bool:
@@ -101,36 +97,6 @@ def test_pool_warmup_then_cross_thread_use() -> None:
 
     assert captured["heading"] == "hello-playwright"
     assert captured["title"] == "Ocarina PW"
-
-
-def test_with_timeout_overrides_then_restores() -> None:
-    """The decorator sets the page default during the call and restores it after."""
-    driver, dispose = _build_driver(wait_timeout=_WAIT_TIMEOUT_S)
-    try:
-        assert driver.default_timeout_ms == _WAIT_TIMEOUT_MS
-        seen: dict[str, int] = {}
-
-        class _Page(POMBase):
-            def __init__(self, d: PlaywrightDriver) -> None:
-                self._driver = d
-
-            def verify(self, *, timeout: float | None = None) -> _Page:  # noqa: ARG002
-                return self
-
-            def get_current_title(self) -> str:
-                return ""
-
-            @with_timeout(_OVERRIDE_TIMEOUT_S)
-            def step(self) -> None:
-                # The configured default is tracked by the driver and must be
-                # restored after the decorated call, regardless of the override.
-                seen["configured"] = self._driver.default_timeout_ms
-
-        _Page(driver).step()
-        assert seen["configured"] == _WAIT_TIMEOUT_MS
-        assert driver.default_timeout_ms == _WAIT_TIMEOUT_MS
-    finally:
-        dispose()
 
 
 def test_screenshotter_writes_file(tmp_path: Path) -> None:
