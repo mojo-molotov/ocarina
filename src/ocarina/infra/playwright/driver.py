@@ -164,6 +164,16 @@ class PlaywrightDriver:
         page.set_default_navigation_timeout(self._default_timeout_ms)
         return page
 
+    @property
+    def is_closed(self) -> bool:
+        """Whether :meth:`quit` has been called (driver voluntarily disposed).
+
+        A closed driver is *not* a dead driver — callers (notably the
+        healthcheck and the screenshotter) use this to silence benign races at
+        teardown without losing the ability to detect a real crash.
+        """
+        return self._closed
+
     def submit[T](self, fn: Callable[[Page], T]) -> T:
         """Run ``fn(page)`` on the owner thread and return its result.
 

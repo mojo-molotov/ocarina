@@ -170,6 +170,14 @@ class Watcher[Driver]:
         ):
             return
 
+        # Encode the invariant: we report only while actively observing. Once
+        # stop() has been requested, a callback still in flight from before the
+        # stop must not log or screenshot. This also closes a benign race at
+        # teardown where the driver gets disposed just as a leaked callback
+        # would have tried to screenshot it.
+        if self._stop_event is None or self._stop_event.is_set():
+            return
+
         with suppress(Exception):
             self._logger.info(message)
             self._take_screenshot(self._driver, self._logger, label)
