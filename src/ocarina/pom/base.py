@@ -48,9 +48,8 @@ class POMBase(ABC):
         - Raise appropriate exceptions on verification failure
         - Store driver/page instance as needed by framework
 
-    Example:
-        >>> # Selenium
-        ... class LoginPage(POMBase):
+    Example (Selenium):
+        >>> class LoginPage(POMBase):
         ...     def __init__(self, driver: WebDriver):
         ...         self._driver = driver
         ...
@@ -58,16 +57,6 @@ class POMBase(ABC):
         ...         WebDriverWait(self._driver, timeout or 10).until(
         ...             EC.presence_of_element_located((By.ID, "login-form"))
         ...         )
-        ...         return self
-
-    Example:
-        >>> # Playwright
-        ... class LoginPage(POMBase):
-        ...     def __init__(self, page: Page):
-        ...         self._page = page
-        ...
-        ...     def verify(self, timeout: float | None = None) -> Self:
-        ...         self._page.wait_for_selector("#login-form", timeout=timeout)
         ...         return self
 
     """
@@ -92,18 +81,10 @@ class POMBase(ABC):
             (e.g., TimeoutException, PageVerificationError).
 
         Example:
-            >>> # Checking for unique element
-            ... def verify(self, timeout: float | None = None) -> Self:
+            >>> def verify(self, timeout: float | None = None) -> Self:
             ...     WebDriverWait(self._driver, timeout or 10).until(
             ...         EC.presence_of_element_located((By.ID, "unique-element"))
             ...     )
-            ...     return self
-
-        Example:
-            >>> # Checking URL pattern
-            ... def verify(self, timeout: float | None = None) -> Self:
-            ...     if "/login" not in self._driver.current_url:
-            ...         raise PageVerificationError("Not on login page")
             ...     return self
 
         """
@@ -111,39 +92,5 @@ class POMBase(ABC):
 
     @abstractmethod
     def get_current_title(self) -> str:
-        """Get the current page title from the browser.
-
-        Returns the text content of the page's <title> element.
-        Used for:
-        - Page verification (check title contains expected text)
-        - Logging (include title in error messages)
-        - Debugging (identify which page we're on)
-
-        Returns:
-            str: The page title as a string.
-                Empty string if no title element exists.
-
-        Example (manual implementation):
-            >>> def get_current_title(self) -> str:
-            ...     return self._driver.title
-
-        Example (using in verification):
-            >>> def verify(self, timeout: float | None = None) -> Self:
-            ...     if "Login" not in self.get_current_title():
-            ...         raise PageVerificationError("Not on login page")
-            ...     return self
-
-        Example (using in logging):
-            >>> def log_current_page(self) -> None:
-            ...     logger.info(f"Current page: {self.get_current_title()}")
-
-        Note:
-            Most implementations should use SeleniumTitleMixin instead of
-            implementing this manually. The mixin provides a standard
-            implementation that simply returns self._driver.title.
-
-        See Also:
-            - SeleniumTitleMixin: Provides default implementation
-
-        """
+        """Get the current page title (empty string if no <title>)."""
         ...

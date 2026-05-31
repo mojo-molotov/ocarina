@@ -73,13 +73,7 @@ def _generate_unique_trace_path(trace_dir: str) -> str:
 
 @final
 class PlaywrightDriver:
-    """A Playwright session whose every call runs on a private owner thread.
-
-    Build it via :func:`ocarina.infra.playwright.create_driver.create_playwright_driver`
-    rather than directly. Page objects interact with the session exclusively
-    through :meth:`submit`, which returns plain data — never live Playwright
-    objects, which are owner-thread bound.
-    """
+    """A Playwright session whose every call runs on a private owner thread."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -177,19 +171,12 @@ class PlaywrightDriver:
     def submit[T](self, fn: Callable[[Page], T]) -> T:
         """Run ``fn(page)`` on the owner thread and return its result.
 
-        This is the only sanctioned way for page objects to drive the browser.
-        ``fn`` must return plain, thread-safe data (str, bool, bytes, None, ...).
-        Never return live Playwright objects (Locator, ElementHandle): they are
-        bound to the owner thread and unusable elsewhere.
-
-        Re-entrancy is rejected loudly: a ``submit()`` issued from the owner
-        thread (e.g. ``fn`` calling another method that submits) would queue
-        behind the running task and then block on its own ``.result()`` — a
-        silent deadlock. We raise instead, so the failure is named, not a hang.
+        ``fn`` must return plain, thread-safe data — never a live Locator or
+        ElementHandle, which are owner-thread bound.
 
         Raises:
             RuntimeError: If called after :meth:`quit`, or re-entrantly from the
-                owner thread.
+                owner thread (would deadlock).
 
         """
         if self._closed:

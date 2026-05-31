@@ -1,13 +1,4 @@
-"""Playwright factory for the generic Screenshotter.
-
-Provides a factory function to create Screenshotter instances configured for
-Ocarina's PlaywrightDriver, with full-page screenshot support.
-
-Usage:
-    >>> driver, _ = create_playwright_driver(browser="chromium", ...)
-    >>> screenshotter = create_playwright_screenshotter(driver, logger)
-    >>> screenshotter.take_screenshot(prefix="test")
-"""
+"""Playwright factory for the generic Screenshotter."""
 
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,14 +14,7 @@ if TYPE_CHECKING:
 
 
 def _playwright_save_full_page(driver: PlaywrightDriver, path: str) -> bool:
-    """Save a full-page screenshot (supported natively by every Playwright browser).
-
-    Injected into the generic Screenshotter, keeping the core library clean.
-
-    Returns:
-        True on success, False otherwise (triggers fallback to viewport shot).
-
-    """
+    """Full-page screenshot; returns False on failure so the caller falls back."""
 
     def _shot(page: Page) -> bool:
         page.screenshot(path=path, full_page=True)
@@ -51,20 +35,7 @@ def create_playwright_screenshotter(  # noqa: PLR0913
     default_burst_delay: float = 0.5,
     enable_full_page: bool = True,
 ) -> Screenshotter[PlaywrightDriver]:
-    """Create a Screenshotter configured for Ocarina's PlaywrightDriver.
-
-    Args:
-        driver: PlaywrightDriver instance.
-        logger: Logger implementing ILogger interface.
-        output_dir: Directory for screenshots (default: .screenshots/).
-        file_ext: File extension for screenshots (default: .png).
-        default_burst_delay: Default delay between burst shots (default: 0.5s).
-        enable_full_page: Capture full-page screenshots when True (default).
-
-    Returns:
-        Screenshotter[PlaywrightDriver].
-
-    """
+    """Create a Screenshotter configured for Ocarina's PlaywrightDriver."""
     config = ScreenshotterConfig[PlaywrightDriver](
         output_dir=output_dir or Path.cwd() / ".screenshots",
         file_ext=file_ext,
