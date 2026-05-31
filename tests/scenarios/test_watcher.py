@@ -165,6 +165,51 @@ def test_report_before_start_is_silent() -> None:  # noqa: D103
 
 @allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
 @allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("watcher", "report", "teardown-race")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.CRITICAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title(  # type: ignore[no-untyped-call,untyped-decorator]
+    "report() called by a callback still in flight after stop() is a silent no-op"
+)
+def test_report_after_stop_is_silent_even_when_callback_is_in_flight() -> None:  # noqa: D103
+    # Reproduces the teardown race deterministically:
+    # 1. Callback enters and signals it is running, then waits.
+    # 2. Main thread sees the signal and calls stop() — stop_event gets set
+    #    and join() returns (bounded), but the callback is still in flight.
+    # 3. Main thread releases the callback. It calls report().
+    # 4. report() must observe the set stop_event and skip both logging and
+    #    the screenshot — otherwise the screenshot would race with disposal
+    #    and produce a noisy DriverDiedError stacktrace under load.
+    in_callback = threading.Event()
+    proceed = threading.Event()
+
+    def callback(w: Watcher[FakeDriver]) -> None:
+        in_callback.set()
+        proceed.wait(timeout=2.0)
+        w.report("late", label="LATE")
+
+    watcher = Watcher[FakeDriver](callback=callback, name="leaky", poll_interval=0.05)
+    hooks = RecordingHooks()
+    driver = FakeDriver()
+
+    watcher.start(driver, hooks.logger(), hooks.take_screenshot)
+    assert in_callback.wait(timeout=2.0), "callback never started"
+
+    watcher.stop()  # sets _stop_event; join times out because callback is in flight
+    proceed.set()  # release the callback so it calls report()
+
+    # Give the leaked thread a moment to finish its (now no-op) report() call.
+    thread = watcher._thread  # noqa: SLF001
+    assert thread is not None
+    thread.join(timeout=2.0)
+    assert not thread.is_alive(), "leaked thread did not exit after release"
+
+    assert hooks.messages == []
+    assert hooks.screenshots == []
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
 @allure.tag("watcher", "lifecycle")  # type: ignore[no-untyped-call,untyped-decorator]
 @allure.severity(allure.severity_level.MINOR)  # type: ignore[no-untyped-call,untyped-decorator]
 @allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
