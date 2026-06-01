@@ -51,7 +51,7 @@ _MAX_TRACE_NAME_RETRIES = 500
 
 # Seconds added on top of ``wait_timeout`` to form the per-call budget. The sum
 # must exceed ``wait_timeout`` so a legitimate auto-wait (which can run for the
-# full ``wait_timeout``) is never mistaken for a dead transport.
+# full ``wait_timeout``) is never mistaken for a stuck call.
 _DEFAULT_CALL_TIMEOUT_MARGIN_S = 30.0
 
 
@@ -351,9 +351,8 @@ class PlaywrightDriver:
             )
             raise RuntimeError(msg)
         if self._closed:
-            # Already disposed, or died: a dead transport cannot be torn down,
-            # so we skip the teardown submit (it would only wedge behind the
-            # stuck call) and just abandon the daemon owner thread.
+            # Already disposed, or marked dead: skip the teardown submit (it
+            # would only queue behind the stuck call) and abandon the thread.
             self._owner.stop()
             return
         self._closed = True
@@ -371,9 +370,8 @@ class PlaywrightDriver:
             with suppress(Exception):
                 self._playwright.stop()
 
-        # Bound the teardown: if the owner thread is wedged the future never
-        # resolves, so we wait at most the call budget then walk away. stop()
-        # never joins, so disposal cannot hang on a dead owner thread.
+        # Bound the teardown: a stuck owner thread never resolves the future, so
+        # wait at most the call budget then walk away (stop() never joins).
         with suppress(Exception):
             self._owner.submit(_teardown).result(timeout=self._call_timeout_s)
         self._owner.stop()
