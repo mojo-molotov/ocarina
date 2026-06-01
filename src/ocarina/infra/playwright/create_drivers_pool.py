@@ -24,6 +24,7 @@ def create_playwright_drivers_pool(  # noqa: PLR0913
     warmup_timeout: float | None = None,
     record_video_dir: str | None = None,
     trace_dir: str | None = None,
+    call_timeout: float | None = None,
 ) -> PlaywrightDriversPool:
     """Create a WebDriversPool backed by Playwright.
 
@@ -34,6 +35,12 @@ def create_playwright_drivers_pool(  # noqa: PLR0913
     ``record_video_dir`` and ``trace_dir`` are opt-in artifact options forwarded
     to every driver in the pool (off by default). Each driver writes its own
     uniquely-named trace/video, so per-test artifacts do not collide.
+
+    ``call_timeout`` (seconds) is the per-driver liveness ceiling: how long a
+    single marshalled call may run before the driver is declared dead. It is a
+    generous last-resort bound on a wedged owner thread, not a per-operation
+    deadline — leave it ``None`` for the default, raise it if any single call
+    (e.g. a long humanized fill) legitimately runs longer.
     """
     drivers_pool = WebDriversPool(
         create_driver=lambda: create_playwright_driver(
@@ -44,6 +51,7 @@ def create_playwright_drivers_pool(  # noqa: PLR0913
             tmp_dir_prefix=tmp_dir_prefix,
             record_video_dir=record_video_dir,
             trace_dir=trace_dir,
+            call_timeout=call_timeout,
         ),
         max_size=max_size,
         warmup_timeout=warmup_timeout,

@@ -29,7 +29,7 @@ def create_playwright_driver(  # noqa: PLR0913
     tmp_dir_prefix: str = ".playwright_profile_",
     record_video_dir: str | None = None,
     trace_dir: str | None = None,
-    call_timeout_margin: float | None = None,
+    call_timeout: float | None = None,
 ) -> BuiltPlaywrightDriver:
     """Create a PlaywrightDriver wrapped in a BuiltWebDriver tuple.
 
@@ -45,11 +45,13 @@ def create_playwright_driver(  # noqa: PLR0913
         written to disk when the driver is disposed, kept there, and accumulate
         across runs — nothing is overwritten or auto-cleaned.
 
-        ``call_timeout_margin`` (seconds) tunes how long a single marshalled
-        Playwright call may run before the driver is declared dead: the budget
-        is ``wait_timeout + call_timeout_margin``. Leave it ``None`` to use
-        ``PlaywrightDriver``'s default. Raise it if legitimate calls chain
-        several long auto-waits; it must stay above ``wait_timeout``.
+        ``call_timeout`` (seconds) is the liveness ceiling for a single
+        marshalled call before the driver is declared dead — a generous
+        last-resort bound on a wedged owner thread, not a per-operation
+        deadline, and independent of ``wait_timeout``. Leave it ``None`` to use
+        ``PlaywrightDriver``'s default. It must sit above the slowest legitimate
+        single call (e.g. a long humanized fill or a large per-call
+        ``timeout=``); lower it only for faster dead-driver recovery.
 
     """
     validate(browser, name="browser").assert_that(
@@ -57,8 +59,7 @@ def create_playwright_driver(  # noqa: PLR0913
     ).execute().raise_if_invalid()
 
     extra_kwargs = (
-        {} if call_timeout_margin is None
-        else {"call_timeout_margin": call_timeout_margin}
+        {} if call_timeout is None else {"call_timeout": call_timeout}
     )
 
     return DriverBuilder(

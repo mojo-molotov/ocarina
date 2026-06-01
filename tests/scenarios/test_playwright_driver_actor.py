@@ -32,7 +32,7 @@ _NO_HANG_TIMEOUT_S = 5.0
 
 
 def _build_doubled(
-    *, wait_timeout: int = 1, call_timeout_margin: float = 30.0
+    *, wait_timeout: int = 1, call_timeout: float = 180.0
 ) -> PlaywrightDriver:
     """Build a PlaywrightDriver whose page is a mock (no real browser)."""
     fake_page = MagicMock()
@@ -49,7 +49,7 @@ def _build_doubled(
             headless=True,
             wait_timeout=wait_timeout,
             user_data_dir="unused",
-            call_timeout_margin=call_timeout_margin,
+            call_timeout=call_timeout,
         )
 
 
@@ -183,7 +183,7 @@ def test_boot_times_out_into_driver_died_without_hanging() -> None:
                 headless=True,
                 wait_timeout=0,
                 user_data_dir="unused",
-                call_timeout_margin=0.2,
+                call_timeout=0.2,
             )
         assert time.monotonic() - started < _NO_HANG_TIMEOUT_S
     finally:
@@ -197,7 +197,7 @@ def test_submit_times_out_into_driver_died_without_hanging() -> None:
     wedged on the dead pipe and the marshalled call never completes. submit()
     must bound the wait and surface DriverDiedError instead of hanging forever.
     """
-    driver = _build_doubled(wait_timeout=0, call_timeout_margin=0.2)
+    driver = _build_doubled(wait_timeout=0, call_timeout=0.2)
     release = threading.Event()
     try:
         started = time.monotonic()
@@ -218,7 +218,7 @@ def test_submit_times_out_into_driver_died_without_hanging() -> None:
 
 def test_dead_driver_rejects_further_use() -> None:
     """Once dead, submit() and the healthcheck both raise DriverDiedError."""
-    driver = _build_doubled(wait_timeout=0, call_timeout_margin=0.2)
+    driver = _build_doubled(wait_timeout=0, call_timeout=0.2)
     release = threading.Event()
     try:
         with pytest.raises(DriverDiedError):
@@ -244,7 +244,7 @@ def test_dispose_does_not_hang_after_driver_dies() -> None:
     quit() that joined it would sequester the semaphore permit for the life of
     the process. It must walk away instead.
     """
-    driver = _build_doubled(wait_timeout=0, call_timeout_margin=0.2)
+    driver = _build_doubled(wait_timeout=0, call_timeout=0.2)
     release = threading.Event()
     try:
         with pytest.raises(DriverDiedError):
