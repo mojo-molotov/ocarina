@@ -159,9 +159,9 @@ class PlaywrightDriver:
             call_timeout_margin: Seconds added on top of ``wait_timeout`` to
                 form the per-call marshalling budget used by :meth:`submit`. A
                 call exceeding ``wait_timeout + call_timeout_margin`` is treated
-                as a dead transport (the driver is marked dead and
-                ``DriverDiedError`` is raised). Must stay comfortably above the
-                marshalling overhead so legitimate auto-waits are never killed.
+                as a dead driver (marked dead and ``DriverDiedError`` raised).
+                Must stay comfortably above the marshalling overhead so
+                legitimate auto-waits are never killed.
             user_data_dir: Profile directory for the persistent context
                 (supplied by DriverBuilder, cleaned up on dispose).
             record_video_dir: If set, record a video of the session into this
@@ -193,7 +193,7 @@ class PlaywrightDriver:
         except RuntimeError as exc:
             self._dead = True
             self._closed = True
-            msg = "Could not start the Playwright owner thread (resource exhaustion?)."
+            msg = "Could not start the Playwright owner thread."
             raise DriverDiedError(msg) from exc
         self._playwright: Playwright
         self._context: BrowserContext
@@ -216,8 +216,8 @@ class PlaywrightDriver:
             self._closed = True
             self._owner.stop()
             msg = (
-                f"Playwright boot exceeded {self._call_timeout_s:g}s; the driver "
-                "process likely crashed during startup."
+                f"Playwright boot did not complete within {self._call_timeout_s:g}s; "
+                "treating the driver as unusable."
             )
             raise DriverDiedError(msg) from exc
 
@@ -262,11 +262,13 @@ class PlaywrightDriver:
 
     @property
     def is_dead(self) -> bool:
-        """Whether the owner transport died (a Playwright call timed out).
+        """Whether a call exceeded its timeout budget and the driver was retired.
 
-        Unlike :attr:`is_closed`, this means a genuine crash: the node driver
-        process is gone and the owner thread is wedged on its dead pipe. Such a
-        driver must be replaced, not reused.
+        Set when :meth:`submit` (or boot) overruns ``wait_timeout +
+        call_timeout_margin``. We don't know *why* — only that the owner thread
+        is still stuck on that call — so we presume the driver unusable. Unlike
+        :attr:`is_closed` (voluntary disposal), such a driver must be replaced,
+        not reused.
         """
         return self._dead
 
@@ -274,11 +276,11 @@ class PlaywrightDriver:
         """Run ``fn(page)`` on the owner thread and return its result.
 
         The call is bounded by ``wait_timeout + call_timeout_margin``. Exceeding
-        it means the owner thread is wedged on a dead Playwright transport (the
-        node driver crashed): the driver is marked dead and ``DriverDiedError``
-        is raised so the caller can fail/retry with a fresh driver instead of
-        hanging forever. The budget is deliberately wider than ``wait_timeout``
-        so legitimate auto-waits are never mistaken for a crash.
+        it means the owner thread is still stuck on the call: we presume the
+        driver unusable, mark it dead, and raise ``DriverDiedError`` so the
+        caller can fail/retry with a fresh driver instead of hanging forever.
+        The budget is deliberately wider than ``wait_timeout`` so legitimate
+        auto-waits are never mistaken for a stuck call.
 
         ``fn`` must return plain, thread-safe data — never a live Locator or
         ElementHandle, which are owner-thread bound.
@@ -297,7 +299,7 @@ class PlaywrightDriver:
             )
             raise RuntimeError(msg)
         if self._dead:
-            msg = "PlaywrightDriver is dead (owner transport died)."
+            msg = "PlaywrightDriver is dead: a previous call exceeded its timeout."
             raise DriverDiedError(msg)
         if self._closed:
             msg = "PlaywrightDriver has been disposed."
@@ -306,15 +308,15 @@ class PlaywrightDriver:
         try:
             return future.result(timeout=self._call_timeout_s)
         except FuturesTimeoutError as exc:
-            # The future is still running on the (now wedged) owner thread and
-            # cannot be cancelled — abandon it. Marking the driver dead/closed
-            # makes every later submit() raise and lets quit() short-circuit so
-            # disposal never queues behind the stuck call.
+            # The future is still running on the owner thread and cannot be
+            # cancelled — abandon it. Marking the driver dead/closed makes every
+            # later submit() raise and lets quit() short-circuit so disposal
+            # never queues behind the still-running call.
             self._dead = True
             self._closed = True
             msg = (
-                f"Playwright call exceeded {self._call_timeout_s:g}s; the owner "
-                "thread is wedged on a dead driver transport."
+                f"Playwright call did not complete within {self._call_timeout_s:g}s; "
+                "treating the driver as dead."
             )
             raise DriverDiedError(msg) from exc
 

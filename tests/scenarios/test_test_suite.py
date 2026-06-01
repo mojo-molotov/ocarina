@@ -353,7 +353,7 @@ def test_driver_death_on_acquisition_is_retried_then_succeeds(  # noqa: D103
     def deadly_then_ok() -> tuple[FakeDriver, Callable[[], None]]:
         boots["count"] += 1
         if boots["count"] < 3:  # noqa: PLR2004
-            msg = "node crashed during startup"
+            msg = "simulated driver acquisition failure"
             raise DriverDiedError(msg)
         return make_built_driver()
 
@@ -385,7 +385,7 @@ def test_persistent_acquisition_death_skips_tests_without_crashing_suite(  # noq
     )
 
     def always_dead() -> tuple[FakeDriver, Callable[[], None]]:
-        msg = "node keeps crashing at startup"
+        msg = "simulated persistent driver acquisition failure"
         raise DriverDiedError(msg)
 
     suite = make_suite(

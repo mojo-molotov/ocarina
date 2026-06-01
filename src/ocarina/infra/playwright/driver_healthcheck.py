@@ -29,7 +29,7 @@ def playwright_driver_healthcheck(driver: PlaywrightDriver) -> None:
 
     """
     if driver.is_dead:
-        msg = "PlaywrightDriver is dead (owner transport died)."
+        msg = "PlaywrightDriver is dead: a previous call exceeded its timeout."
         raise DriverDiedError(msg)
     if driver.is_closed:
         return
