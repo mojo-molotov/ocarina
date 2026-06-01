@@ -49,10 +49,15 @@ if TYPE_CHECKING:
 _TRACE_ID_LENGTH = 8
 _MAX_TRACE_NAME_RETRIES = 500
 
-# Seconds added on top of ``wait_timeout`` to form the per-call budget. The sum
-# must exceed ``wait_timeout`` so a legitimate auto-wait (which can run for the
-# full ``wait_timeout``) is never mistaken for a stuck call.
-_DEFAULT_CALL_TIMEOUT_MARGIN_S = 30.0
+# Liveness ceiling, in seconds, for a single marshalled call (see ``submit``).
+# This is NOT a per-operation deadline: it only exists to turn an *infinite* hang
+# on a dead owner thread into an eventual, bounded failure. It is deliberately
+# decoupled from ``wait_timeout`` (which bounds Playwright's auto-waits) and set
+# generously, well above the slowest legitimate single ``submit`` — a long
+# humanized fill, a large per-call ``timeout=``, etc. Erring large is the right
+# bias: a dead driver is merely detected later (still far better than hanging
+# forever), whereas too tight a ceiling kills slow-but-alive calls.
+_DEFAULT_CALL_TIMEOUT_S = 180.0
 
 
 def _generate_unique_trace_path(trace_dir: str) -> str:
@@ -144,7 +149,7 @@ class PlaywrightDriver:
         user_data_dir: str,
         record_video_dir: str | None = None,
         trace_dir: str | None = None,
-        call_timeout_margin: float = _DEFAULT_CALL_TIMEOUT_MARGIN_S,
+        call_timeout: float = _DEFAULT_CALL_TIMEOUT_S,
     ) -> None:
         """Spawn the owner thread and boot a persistent browser context on it.
 
@@ -156,19 +161,16 @@ class PlaywrightDriver:
                 of Selenium's implicit wait). Set once here; for one-off edge
                 cases, use Playwright's per-call ``timeout=`` argument at the
                 call site.
-            call_timeout_margin: Seconds added on top of ``wait_timeout`` to
-                form the per-call marshalling budget used by :meth:`submit`. A
-                call exceeding ``wait_timeout + call_timeout_margin`` is treated
-                as a dead driver (marked dead and ``DriverDiedError`` raised).
-                The budget assumes the documented convention: one auto-waiting
-                Playwright call per ``submit``, bounded by ``wait_timeout``. The
-                margin must stay well above the marshalling overhead (so a real
-                Playwright TimeoutError surfaces as a normal failure, not as a
-                dead driver). Raise it whenever a single ``submit`` can
-                legitimately run longer than ``wait_timeout`` — a per-call
-                ``timeout=`` override, ``wait_for_timeout``, or several
-                auto-waiting calls in one lambda — or such a call is mis-flagged
-                as dead.
+            call_timeout: Liveness ceiling in seconds for a single
+                :meth:`submit`. NOT a per-operation deadline — it only converts
+                an infinite hang on a dead owner thread into a bounded failure.
+                Decoupled from ``wait_timeout`` on purpose: it must sit *above*
+                the slowest legitimate single ``submit`` (a long humanized fill,
+                a large per-call ``timeout=``, several auto-waiting calls in one
+                lambda), so a slow-but-alive call is never mis-flagged as dead.
+                A call exceeding it is treated as a dead driver (marked dead and
+                ``DriverDiedError`` raised). Lower it for faster dead-driver
+                recovery, raise it if any single call legitimately runs longer.
             user_data_dir: Profile directory for the persistent context
                 (supplied by DriverBuilder, cleaned up on dispose).
             record_video_dir: If set, record a video of the session into this
@@ -183,7 +185,7 @@ class PlaywrightDriver:
 
         """
         self._default_timeout_ms = wait_timeout * 1000
-        self._call_timeout_s = wait_timeout + call_timeout_margin
+        self._call_timeout_s = call_timeout
         self._closed = False
         self._dead = False
         self._owner_ident: int | None = None
@@ -271,23 +273,23 @@ class PlaywrightDriver:
     def is_dead(self) -> bool:
         """Whether a call exceeded its timeout budget and the driver was retired.
 
-        Set when :meth:`submit` (or boot) overruns ``wait_timeout +
-        call_timeout_margin``. We don't know *why* — only that the owner thread
-        is still stuck on that call — so we presume the driver unusable. Unlike
-        :attr:`is_closed` (voluntary disposal), such a driver must be replaced,
-        not reused.
+        Set when :meth:`submit` (or boot) overruns ``call_timeout``. We don't
+        know *why* — only that the owner thread is still stuck on that call — so
+        we presume the driver unusable. Unlike :attr:`is_closed` (voluntary
+        disposal), such a driver must be replaced, not reused.
         """
         return self._dead
 
     def submit[T](self, fn: Callable[[Page], T]) -> T:
         """Run ``fn(page)`` on the owner thread and return its result.
 
-        The call is bounded by ``wait_timeout + call_timeout_margin``. Exceeding
-        it means the owner thread is still stuck on the call: we presume the
-        driver unusable, mark it dead, and raise ``DriverDiedError`` so the
-        caller can fail/retry with a fresh driver instead of hanging forever.
-        The budget is deliberately wider than ``wait_timeout`` so legitimate
-        auto-waits are never mistaken for a stuck call.
+        The call is bounded by ``call_timeout`` (a generous liveness ceiling,
+        not a per-operation deadline). Exceeding it means the owner thread is
+        still stuck on the call: we presume the driver unusable, mark it dead,
+        and raise ``DriverDiedError`` so the caller can fail/retry with a fresh
+        driver instead of hanging forever. ``call_timeout`` is sized well above
+        the slowest legitimate single call, so a slow-but-alive call is never
+        mistaken for a stuck one.
 
         ``fn`` must return plain, thread-safe data — never a live Locator or
         ElementHandle, which are owner-thread bound.
