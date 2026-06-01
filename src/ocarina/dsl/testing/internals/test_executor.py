@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, final
 
 from ocarina.aggregates.tests_layers import is_test_result_fail
+from ocarina.custom_errors.test_framework.driver_died import DriverDiedError
 from ocarina.dsl.testing_with_railway.internals.action_chain import ActionChain
 from ocarina.railway.result import Fail
 
@@ -82,13 +83,21 @@ class TestExecutor[Driver]:
             act_counter:        Tracks act() calls. The caller (TestFlow) is
                                 responsible for resetting it before each attempt.
             transient_errors:   Exception types that hint the caller to retry.
+                                ``DriverDiedError`` is always treated as
+                                transient on top of these: drivers are never
+                                reused, so a retry always gets a fresh, healthy
+                                driver — failing the test outright for an
+                                environmental/upstream browser crash would be
+                                wrong.
             autoscreen_on_fail: Capture screenshot automatically on chain failure.
 
         """
         self._create_logger = create_logger
         self._take_screenshot = take_screenshot
         self._act_counter = act_counter
-        self._transient_errors = transient_errors
+        # A dead driver is intrinsically retryable: every acquire() builds a new
+        # one, so we always fold DriverDiedError into the transient set.
+        self._transient_errors = (*transient_errors, DriverDiedError)
         self._autoscreen_on_fail = autoscreen_on_fail
 
     def execute(  # noqa: PLR0913

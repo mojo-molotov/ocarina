@@ -26,12 +26,16 @@ unchanged.
 
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from contextlib import suppress
 from pathlib import Path
+from queue import Queue
 from typing import TYPE_CHECKING, Any, final
 
 from playwright.sync_api import sync_playwright
+
+from ocarina.custom_errors.test_framework.driver_died import DriverDiedError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -44,6 +48,11 @@ if TYPE_CHECKING:
 
 _TRACE_ID_LENGTH = 8
 _MAX_TRACE_NAME_RETRIES = 500
+
+# Seconds added on top of ``wait_timeout`` to form the per-call budget. The sum
+# must exceed ``wait_timeout`` so a legitimate auto-wait (which can run for the
+# full ``wait_timeout``) is never mistaken for a stuck call.
+_DEFAULT_CALL_TIMEOUT_MARGIN_S = 30.0
 
 
 def _generate_unique_trace_path(trace_dir: str) -> str:
@@ -72,6 +81,57 @@ def _generate_unique_trace_path(trace_dir: str) -> str:
 
 
 @final
+class _OwnerThread:
+    """A single owner thread that runs submitted callables in submission order.
+
+    Like ``ThreadPoolExecutor(max_workers=1)`` but the worker is a daemon.
+    ThreadPoolExecutor workers are non-daemon and joined by an ``atexit`` hook;
+    a worker wedged on a dead Playwright pipe never returns, so that join would
+    hang process exit. A daemon worker is abandoned at exit instead. We also
+    never join it ourselves (see :meth:`stop`): a running future is not
+    cancellable, so the only move for a dead driver is to walk away.
+    """
+
+    def __init__(self, name: str) -> None:
+        """Spawn the daemon worker thread."""
+        self._queue: Queue[tuple[Callable[[], Any], Future[Any]] | None] = Queue()
+        self._thread = threading.Thread(target=self._run, name=name, daemon=True)
+        self._thread.start()
+
+    def submit[T](self, fn: Callable[[], T]) -> Future[T]:
+        """Queue ``fn`` for the owner thread and return its pending future."""
+        future: Future[T] = Future()
+        self._queue.put((fn, future))
+        return future
+
+    def _run(self) -> None:
+        """Drain the queue on the owner thread until asked to stop."""
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            fn, future = item
+            if not future.set_running_or_notify_cancel():
+                continue
+            try:
+                result = fn()
+            except BaseException as exc:  # noqa: BLE001 — marshal any failure back.
+                future.set_exception(exc)
+            else:
+                future.set_result(result)
+
+    def stop(self) -> None:
+        """Ask the worker to exit after its current task. Never joins.
+
+        A worker wedged on a dead transport never sees the sentinel; it is a
+        daemon, reaped at interpreter exit. The cost is a per-death leak (the
+        thread, the stuck call, and its closure stay referenced until exit) —
+        the deliberate trade against hanging the run.
+        """
+        self._queue.put(None)
+
+
+@final
 class PlaywrightDriver:
     """A Playwright session whose every call runs on a private owner thread."""
 
@@ -84,6 +144,7 @@ class PlaywrightDriver:
         user_data_dir: str,
         record_video_dir: str | None = None,
         trace_dir: str | None = None,
+        call_timeout_margin: float = _DEFAULT_CALL_TIMEOUT_MARGIN_S,
     ) -> None:
         """Spawn the owner thread and boot a persistent browser context on it.
 
@@ -95,6 +156,12 @@ class PlaywrightDriver:
                 of Selenium's implicit wait). Set once here; for one-off edge
                 cases, use Playwright's per-call ``timeout=`` argument at the
                 call site.
+            call_timeout_margin: Seconds added on top of ``wait_timeout`` to
+                form the per-call marshalling budget used by :meth:`submit`. A
+                call exceeding ``wait_timeout + call_timeout_margin`` is treated
+                as a dead driver (marked dead and ``DriverDiedError`` raised).
+                Must stay comfortably above the marshalling overhead so
+                legitimate auto-waits are never killed.
             user_data_dir: Profile directory for the persistent context
                 (supplied by DriverBuilder, cleaned up on dispose).
             record_video_dir: If set, record a video of the session into this
@@ -109,26 +176,50 @@ class PlaywrightDriver:
 
         """
         self._default_timeout_ms = wait_timeout * 1000
+        self._call_timeout_s = wait_timeout + call_timeout_margin
         self._closed = False
+        self._dead = False
         self._owner_ident: int | None = None
         self._record_video_dir = record_video_dir
         self._trace_dir = trace_dir
         self._trace_path: str | None = (
             _generate_unique_trace_path(trace_dir) if trace_dir is not None else None
         )
-        self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="ocarina-pw"
-        )
+        # A thread the OS won't spawn (resource exhaustion) is an infra failure,
+        # not a usable driver: surface it as DriverDiedError so the caller skips
+        # the test instead of crashing the run with a raw RuntimeError.
+        try:
+            self._owner = _OwnerThread("ocarina-pw")
+        except RuntimeError as exc:
+            self._dead = True
+            self._closed = True
+            msg = "Could not start the Playwright owner thread."
+            raise DriverDiedError(msg) from exc
         self._playwright: Playwright
         self._context: BrowserContext
         self._browser: Browser | None
 
-        self._page: Page = self._executor.submit(
-            self._boot,
-            browser=browser,
-            headless=headless,
-            user_data_dir=user_data_dir,
-        ).result()
+        # Bound boot like any call: a driver can crash during startup too, and on
+        # the on-demand acquire() path nothing else would catch it — an unbounded
+        # boot would wedge the worker with the pool permit held.
+        boot = self._owner.submit(
+            lambda: self._boot(
+                browser=browser,
+                headless=headless,
+                user_data_dir=user_data_dir,
+            )
+        )
+        try:
+            self._page = boot.result(timeout=self._call_timeout_s)
+        except FuturesTimeoutError as exc:
+            self._dead = True
+            self._closed = True
+            self._owner.stop()
+            msg = (
+                f"Playwright boot did not complete within {self._call_timeout_s:g}s; "
+                "treating the driver as unusable."
+            )
+            raise DriverDiedError(msg) from exc
 
     def _boot(
         self,
@@ -164,31 +255,70 @@ class PlaywrightDriver:
 
         A closed driver is *not* a dead driver — callers (notably the
         healthcheck and the screenshotter) use this to silence benign races at
-        teardown without losing the ability to detect a real crash.
+        teardown without losing the ability to detect a real crash. Note that a
+        driver that *died* is also reported as closed (see :attr:`is_dead`).
         """
         return self._closed
 
+    @property
+    def is_dead(self) -> bool:
+        """Whether a call exceeded its timeout budget and the driver was retired.
+
+        Set when :meth:`submit` (or boot) overruns ``wait_timeout +
+        call_timeout_margin``. We don't know *why* — only that the owner thread
+        is still stuck on that call — so we presume the driver unusable. Unlike
+        :attr:`is_closed` (voluntary disposal), such a driver must be replaced,
+        not reused.
+        """
+        return self._dead
+
     def submit[T](self, fn: Callable[[Page], T]) -> T:
         """Run ``fn(page)`` on the owner thread and return its result.
+
+        The call is bounded by ``wait_timeout + call_timeout_margin``. Exceeding
+        it means the owner thread is still stuck on the call: we presume the
+        driver unusable, mark it dead, and raise ``DriverDiedError`` so the
+        caller can fail/retry with a fresh driver instead of hanging forever.
+        The budget is deliberately wider than ``wait_timeout`` so legitimate
+        auto-waits are never mistaken for a stuck call.
 
         ``fn`` must return plain, thread-safe data — never a live Locator or
         ElementHandle, which are owner-thread bound.
 
         Raises:
-            RuntimeError: If called after :meth:`quit`, or re-entrantly from the
-                owner thread (would deadlock).
+            RuntimeError: If called re-entrantly from the owner thread (would
+                deadlock), or after :meth:`quit`.
+            DriverDiedError: If the driver has died, or this call exceeds the
+                marshalling budget (chains the original timeout).
 
         """
-        if self._closed:
-            msg = "PlaywrightDriver has been disposed."
-            raise RuntimeError(msg)
         if threading.get_ident() == self._owner_ident:
             msg = (
                 "Re-entrant submit() on the owner thread would deadlock. "
                 "You are already on the page thread — call page directly."
             )
             raise RuntimeError(msg)
-        return self._executor.submit(lambda: fn(self._page)).result()
+        if self._dead:
+            msg = "PlaywrightDriver is dead: a previous call exceeded its timeout."
+            raise DriverDiedError(msg)
+        if self._closed:
+            msg = "PlaywrightDriver has been disposed."
+            raise RuntimeError(msg)
+        future = self._owner.submit(lambda: fn(self._page))
+        try:
+            return future.result(timeout=self._call_timeout_s)
+        except FuturesTimeoutError as exc:
+            # The future is still running on the owner thread and cannot be
+            # cancelled — abandon it. Marking the driver dead/closed makes every
+            # later submit() raise and lets quit() short-circuit so disposal
+            # never queues behind the still-running call.
+            self._dead = True
+            self._closed = True
+            msg = (
+                f"Playwright call did not complete within {self._call_timeout_s:g}s; "
+                "treating the driver as dead."
+            )
+            raise DriverDiedError(msg) from exc
 
     def save_screenshot(self, path: str) -> bool:
         """Capture a viewport screenshot. Satisfies the ScreenshotDriver protocol."""
@@ -221,6 +351,9 @@ class PlaywrightDriver:
             )
             raise RuntimeError(msg)
         if self._closed:
+            # Already disposed, or marked dead: skip the teardown submit (it
+            # would only queue behind the stuck call) and abandon the thread.
+            self._owner.stop()
             return
         self._closed = True
 
@@ -237,6 +370,8 @@ class PlaywrightDriver:
             with suppress(Exception):
                 self._playwright.stop()
 
+        # Bound the teardown: a stuck owner thread never resolves the future, so
+        # wait at most the call budget then walk away (stop() never joins).
         with suppress(Exception):
-            self._executor.submit(_teardown).result()
-        self._executor.shutdown(wait=True)
+            self._owner.submit(_teardown).result(timeout=self._call_timeout_s)
+        self._owner.stop()

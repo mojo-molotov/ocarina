@@ -7,6 +7,8 @@ It delegates the actual execution of each attempt to TestExecutor.
 import time
 from typing import TYPE_CHECKING, final
 
+from ocarina.custom_errors.test_framework.driver_died import DriverDiedError
+
 if TYPE_CHECKING:
     from ocarina.custom_types.oc_test_layers import TestSuiteResult
     from ocarina.custom_types.thunk import Thunk
@@ -91,16 +93,39 @@ class TestFlow[Driver]:
         for attempt in range(1, max_attempts + 1):
             self._act_counter.reset()
 
-            with self._drivers_pool.acquire() as driver:
-                outcome = self._executor.execute(
-                    test,
-                    driver=driver,
-                    taxonomy=taxonomy,
-                    logger_with_taxonomy=logger_with_taxonomy,
-                    logger_without_taxonomy=logger_without_taxonomy,
-                    attempt=attempt,
-                    max_attempts=max_attempts,
+            try:
+                with self._drivers_pool.acquire() as driver:
+                    outcome = self._executor.execute(
+                        test,
+                        driver=driver,
+                        taxonomy=taxonomy,
+                        logger_with_taxonomy=logger_with_taxonomy,
+                        logger_without_taxonomy=logger_without_taxonomy,
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                    )
+            except DriverDiedError as exc:
+                # The driver died at acquisition: a boot timeout, or the owner
+                # thread couldn't even be spawned (resource exhaustion). Drivers
+                # are never reused, so a fresh attempt may boot cleanly — retry.
+                if attempt < max_attempts:
+                    msg = (
+                        f"{test.name} -- Driver died on acquisition"
+                        f" (attempt {attempt}/{max_attempts}): {exc}"
+                    )
+                    logger_with_taxonomy.warning(msg)
+                    logger_with_taxonomy.cleanup()
+                    time.sleep(attempt)
+                    continue
+                # Every attempt failed to even produce a driver: the test never
+                # ran. That is an environmental/infra failure, not a test
+                # failure — SKIP it (None), mirroring the all-setup-failed path.
+                msg = (
+                    f"{test.name} — Skipped: could not acquire a driver on any"
+                    f" of {max_attempts} attempts ({exc})."
                 )
+                logger_with_taxonomy.warning(msg)
+                return None, -1, test.test_id
 
             if outcome.skipped:
                 return None, -1, test.test_id
