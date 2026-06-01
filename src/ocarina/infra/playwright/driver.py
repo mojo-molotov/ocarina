@@ -49,11 +49,9 @@ if TYPE_CHECKING:
 _TRACE_ID_LENGTH = 8
 _MAX_TRACE_NAME_RETRIES = 500
 
-# Extra wait, in seconds, added on top of the page's ``wait_timeout`` to form the
-# per-call marshalling budget. The budget MUST exceed ``wait_timeout`` so that a
-# legitimate Playwright auto-wait (which can run for the full ``wait_timeout``)
-# is never mistaken for a dead transport. The margin only needs to cover the
-# marshalling overhead plus a little slack for back-to-back waits inside one call.
+# Seconds added on top of ``wait_timeout`` to form the per-call budget. The sum
+# must exceed ``wait_timeout`` so a legitimate auto-wait (which can run for the
+# full ``wait_timeout``) is never mistaken for a dead transport.
 _DEFAULT_CALL_TIMEOUT_MARGIN_S = 30.0
 
 
@@ -86,16 +84,12 @@ def _generate_unique_trace_path(trace_dir: str) -> str:
 class _OwnerThread:
     """A single owner thread that runs submitted callables in submission order.
 
-    Behaves like ``ThreadPoolExecutor(max_workers=1)`` but with one crucial
-    difference: the worker is a **daemon** thread. ``ThreadPoolExecutor`` workers
-    are non-daemon and are joined by an ``atexit`` hook on interpreter shutdown;
-    a worker wedged on a dead Playwright transport pipe would never return, so
-    that join — and therefore process exit — would hang forever.
-
-    A daemon worker is abandoned at exit instead of joined, so a wedged owner
-    thread can never block the process from terminating. We also never ``join``
-    it ourselves (see :meth:`stop`): a future already running on the worker is
-    not cancellable, so the only safe move for a dead driver is to walk away.
+    Like ``ThreadPoolExecutor(max_workers=1)`` but the worker is a daemon.
+    ThreadPoolExecutor workers are non-daemon and joined by an ``atexit`` hook;
+    a worker wedged on a dead Playwright pipe never returns, so that join would
+    hang process exit. A daemon worker is abandoned at exit instead. We also
+    never join it ourselves (see :meth:`stop`): a running future is not
+    cancellable, so the only move for a dead driver is to walk away.
     """
 
     def __init__(self, name: str) -> None:
@@ -129,12 +123,10 @@ class _OwnerThread:
     def stop(self) -> None:
         """Ask the worker to exit after its current task. Never joins.
 
-        If the worker is wedged on a dead transport it will never see the
-        sentinel — that is fine: it is a daemon thread and will be reaped at
-        interpreter exit without blocking it. The accepted cost is a per-death
-        leak: the abandoned thread, the stuck call, and its closure stay
-        referenced for the process lifetime. Under repeated deaths these
-        accumulate — a deliberate trade against hanging the whole run.
+        A worker wedged on a dead transport never sees the sentinel; it is a
+        daemon, reaped at interpreter exit. The cost is a per-death leak (the
+        thread, the stuck call, and its closure stay referenced until exit) —
+        the deliberate trade against hanging the run.
         """
         self._queue.put(None)
 
@@ -198,12 +190,9 @@ class PlaywrightDriver:
         self._context: BrowserContext
         self._browser: Browser | None
 
-        # Boot is bounded by the same budget as a normal call: a node driver can
-        # crash *during* startup (launch_persistent_context) just as it can
-        # mid-use — and on the on-demand acquire() path nothing else would catch
-        # it, so an unbounded boot would wedge the worker with the pool permit
-        # held. On timeout we mark the (half-built) driver dead so disposal is a
-        # no-op and raise DriverDiedError; the caller releases the permit.
+        # Bound boot like any call: a driver can crash during startup too, and on
+        # the on-demand acquire() path nothing else would catch it — an unbounded
+        # boot would wedge the worker with the pool permit held.
         boot = self._owner.submit(
             lambda: self._boot(
                 browser=browser,
