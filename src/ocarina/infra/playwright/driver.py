@@ -131,7 +131,10 @@ class _OwnerThread:
 
         If the worker is wedged on a dead transport it will never see the
         sentinel — that is fine: it is a daemon thread and will be reaped at
-        interpreter exit without blocking it.
+        interpreter exit without blocking it. The accepted cost is a per-death
+        leak: the abandoned thread, the stuck call, and its closure stay
+        referenced for the process lifetime. Under repeated deaths these
+        accumulate — a deliberate trade against hanging the whole run.
         """
         self._queue.put(None)
 
@@ -195,13 +198,30 @@ class PlaywrightDriver:
         self._context: BrowserContext
         self._browser: Browser | None
 
-        self._page: Page = self._owner.submit(
+        # Boot is bounded by the same budget as a normal call: a node driver can
+        # crash *during* startup (launch_persistent_context) just as it can
+        # mid-use — and on the on-demand acquire() path nothing else would catch
+        # it, so an unbounded boot would wedge the worker with the pool permit
+        # held. On timeout we mark the (half-built) driver dead so disposal is a
+        # no-op and raise DriverDiedError; the caller releases the permit.
+        boot = self._owner.submit(
             lambda: self._boot(
                 browser=browser,
                 headless=headless,
                 user_data_dir=user_data_dir,
             )
-        ).result()
+        )
+        try:
+            self._page = boot.result(timeout=self._call_timeout_s)
+        except FuturesTimeoutError as exc:
+            self._dead = True
+            self._closed = True
+            self._owner.stop()
+            msg = (
+                f"Playwright boot exceeded {self._call_timeout_s:g}s; the driver "
+                "process likely crashed during startup."
+            )
+            raise DriverDiedError(msg) from exc
 
     def _boot(
         self,

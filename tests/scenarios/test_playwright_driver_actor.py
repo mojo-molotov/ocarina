@@ -130,6 +130,38 @@ def test_trace_name_retries_past_existing_file(
     assert len(Path(result).stem) <= len("trace_") + 8  # short, not a 32-char uuid
 
 
+def test_boot_times_out_into_driver_died_without_hanging() -> None:
+    """A driver crash *during startup* raises DriverDiedError, fast.
+
+    The original prod crash signature fired at the startup/smoke phase, and on
+    the on-demand acquire() path nothing else would catch a boot hang — it would
+    wedge the worker with the pool permit held. Booting must be bounded too.
+    """
+    release = threading.Event()
+    fake_pw = MagicMock()
+    fake_pw.chromium.launch_persistent_context.side_effect = (
+        lambda *_args, **_kwargs: release.wait()
+    )
+    fake_sync = MagicMock(return_value=MagicMock(start=MagicMock(return_value=fake_pw)))
+
+    started = time.monotonic()
+    try:
+        with (
+            mock.patch("ocarina.infra.playwright.driver.sync_playwright", fake_sync),
+            pytest.raises(DriverDiedError),
+        ):
+            PlaywrightDriver(
+                browser="chromium",
+                headless=True,
+                wait_timeout=0,
+                user_data_dir="unused",
+                call_timeout_margin=0.2,
+            )
+        assert time.monotonic() - started < _NO_HANG_TIMEOUT_S
+    finally:
+        release.set()  # let the abandoned owner-thread boot finish
+
+
 def test_submit_times_out_into_driver_died_without_hanging() -> None:
     """A call that never returns (dead transport) raises DriverDiedError, fast.
 
