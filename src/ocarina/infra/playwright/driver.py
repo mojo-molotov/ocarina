@@ -33,6 +33,7 @@ from pathlib import Path
 from queue import Queue
 from typing import TYPE_CHECKING, Any, final
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from ocarina.custom_errors.test_framework.driver_died import DriverDiedError
@@ -218,17 +219,32 @@ class PlaywrightDriver:
                 user_data_dir=user_data_dir,
             )
         )
+        booted = False
         try:
             self._page = boot.result(timeout=self._call_timeout_s)
+            booted = True
         except FuturesTimeoutError as exc:
-            self._dead = True
-            self._closed = True
-            self._owner.stop()
             msg = (
                 f"Playwright boot did not complete within {self._call_timeout_s:g}s; "
                 "treating the driver as unusable."
             )
             raise DriverDiedError(msg) from exc
+        except PlaywrightError as exc:
+            # _boot raised (failed launch, locked profile, ...): couldn't acquire
+            # a working driver. That's infra, not a test failure — surface it as
+            # DriverDiedError so the caller skips instead of crashing the run.
+            msg = "Playwright boot failed; treating the driver as unusable."
+            raise DriverDiedError(msg) from exc
+        finally:
+            # Any boot failure leaves the owner thread either wedged (timeout) or
+            # idle (exception). Mark dead and signal stop so the idle case exits
+            # cleanly instead of leaking a daemon thread; the wedged case is the
+            # accepted per-death leak. Non-Playwright errors propagate raw but
+            # still get this cleanup.
+            if not booted:
+                self._dead = True
+                self._closed = True
+                self._owner.stop()
 
     def _boot(
         self,

@@ -12,10 +12,15 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest import mock
 from unittest.mock import MagicMock
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 
 from ocarina.custom_errors.test_framework.driver_died import DriverDiedError
 from ocarina.infra.playwright.driver import (
@@ -29,6 +34,24 @@ from ocarina.infra.playwright.driver_healthcheck import (
 # Wall-clock ceiling for "must not hang" assertions: generously above the tiny
 # call budgets used in these tests, but far below any real-world hang.
 _NO_HANG_TIMEOUT_S = 5.0
+
+# Name given to every PlaywrightDriver owner thread (see _OwnerThread).
+_OWNER_THREAD_NAME = "ocarina-pw"
+
+
+def _owner_thread_count() -> int:
+    """How many live PlaywrightDriver owner threads currently exist."""
+    return sum(1 for t in threading.enumerate() if t.name == _OWNER_THREAD_NAME)
+
+
+def _wait_until(predicate: Callable[[], bool]) -> bool:
+    """Poll ``predicate`` (thread teardown is async) until true or timeout."""
+    deadline = time.monotonic() + _NO_HANG_TIMEOUT_S
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
 
 
 def _build_doubled(
@@ -188,6 +211,78 @@ def test_boot_times_out_into_driver_died_without_hanging() -> None:
         assert time.monotonic() - started < _NO_HANG_TIMEOUT_S
     finally:
         release.set()  # let the abandoned owner-thread boot finish
+
+
+def test_boot_failure_does_not_leak_owner_thread() -> None:
+    """A boot that *fails* (not hangs) must stop its owner thread, not leak it.
+
+    Non-regression: when ``_boot`` raised, ``stop()`` used to be skipped (only
+    the timeout branch called it), leaving the owner thread blocked forever on
+    its queue — one leaked daemon thread per failed boot.
+    """
+    baseline = _owner_thread_count()
+    fake_pw = MagicMock()
+    fake_pw.chromium.launch_persistent_context.side_effect = PlaywrightError("boom")
+    fake_sync = MagicMock(return_value=MagicMock(start=MagicMock(return_value=fake_pw)))
+
+    with (
+        mock.patch("ocarina.infra.playwright.driver.sync_playwright", fake_sync),
+        pytest.raises(DriverDiedError),
+    ):
+        PlaywrightDriver(
+            browser="chromium", headless=True, wait_timeout=0, user_data_dir="unused"
+        )
+
+    assert _wait_until(lambda: _owner_thread_count() == baseline), (
+        "owner thread leaked after a failed boot"
+    )
+
+
+def test_normal_disposal_does_not_leak_owner_thread() -> None:
+    """The happy path spawns exactly one owner thread and reaps it on quit()."""
+    baseline = _owner_thread_count()
+    driver = _build_doubled()
+    assert _owner_thread_count() == baseline + 1  # alive -> one owner thread
+
+    driver.quit()
+
+    assert _wait_until(lambda: _owner_thread_count() == baseline), (
+        "owner thread leaked after quit()"
+    )
+
+
+def test_boot_timeout_owner_thread_drains_once_wedged_call_returns() -> None:
+    """The boot-timeout leak is transient, not permanent.
+
+    stop() enqueues the sentinel behind the wedged boot call; once that call
+    finally returns, the worker drains the sentinel and exits — so we only leak
+    for as long as the call is genuinely stuck, never beyond it.
+    """
+    baseline = _owner_thread_count()
+    release = threading.Event()
+    fake_pw = MagicMock()
+    fake_pw.chromium.launch_persistent_context.side_effect = (
+        lambda *_args, **_kwargs: release.wait()
+    )
+    fake_sync = MagicMock(return_value=MagicMock(start=MagicMock(return_value=fake_pw)))
+
+    with (
+        mock.patch("ocarina.infra.playwright.driver.sync_playwright", fake_sync),
+        pytest.raises(DriverDiedError),
+    ):
+        PlaywrightDriver(
+            browser="chromium",
+            headless=True,
+            wait_timeout=0,
+            user_data_dir="unused",
+            call_timeout=0.2,
+        )
+
+    release.set()  # unblock the wedged boot call
+
+    assert _wait_until(lambda: _owner_thread_count() == baseline), (
+        "owner thread did not drain after the wedged call returned"
+    )
 
 
 def test_submit_times_out_into_driver_died_without_hanging() -> None:
