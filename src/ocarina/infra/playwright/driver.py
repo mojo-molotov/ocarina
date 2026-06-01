@@ -160,8 +160,15 @@ class PlaywrightDriver:
                 form the per-call marshalling budget used by :meth:`submit`. A
                 call exceeding ``wait_timeout + call_timeout_margin`` is treated
                 as a dead driver (marked dead and ``DriverDiedError`` raised).
-                Must stay comfortably above the marshalling overhead so
-                legitimate auto-waits are never killed.
+                The budget assumes the documented convention: one auto-waiting
+                Playwright call per ``submit``, bounded by ``wait_timeout``. The
+                margin must stay well above the marshalling overhead (so a real
+                Playwright TimeoutError surfaces as a normal failure, not as a
+                dead driver). Raise it whenever a single ``submit`` can
+                legitimately run longer than ``wait_timeout`` — a per-call
+                ``timeout=`` override, ``wait_for_timeout``, or several
+                auto-waiting calls in one lambda — or such a call is mis-flagged
+                as dead.
             user_data_dir: Profile directory for the persistent context
                 (supplied by DriverBuilder, cleaned up on dispose).
             record_video_dir: If set, record a video of the session into this
