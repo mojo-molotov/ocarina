@@ -15,8 +15,9 @@ def playwright_driver_healthcheck(driver: PlaywrightDriver) -> None:
     probe. Raises :class:`DriverDiedError` on any failure so callers can handle
     dead drivers uniformly.
 
-    A voluntarily disposed driver (``driver.is_closed``) is *not* a dead
-    driver: we skip the probe and return cleanly. This prevents the benign
+    A driver that already died (``driver.is_dead``) is reported as dead. A
+    *voluntarily* disposed driver (``driver.is_closed`` but not dead) is *not* a
+    dead driver: we skip the probe and return cleanly. This prevents the benign
     teardown race where a watcher callback still in flight tries to screenshot
     just after the pool has disposed the driver.
 
@@ -27,9 +28,14 @@ def playwright_driver_healthcheck(driver: PlaywrightDriver) -> None:
         DriverDiedError: If the driver is unresponsive. Original exception is chained.
 
     """
+    if driver.is_dead:
+        msg = "PlaywrightDriver is dead (owner transport died)."
+        raise DriverDiedError(msg)
     if driver.is_closed:
         return
     try:
         driver.submit(lambda page: page.title())
+    except DriverDiedError:
+        raise
     except Exception as exc:
         raise DriverDiedError from exc

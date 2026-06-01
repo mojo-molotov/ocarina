@@ -29,6 +29,7 @@ def create_playwright_driver(  # noqa: PLR0913
     tmp_dir_prefix: str = ".playwright_profile_",
     record_video_dir: str | None = None,
     trace_dir: str | None = None,
+    call_timeout_margin: float | None = None,
 ) -> BuiltPlaywrightDriver:
     """Create a PlaywrightDriver wrapped in a BuiltWebDriver tuple.
 
@@ -44,10 +45,21 @@ def create_playwright_driver(  # noqa: PLR0913
         written to disk when the driver is disposed, kept there, and accumulate
         across runs — nothing is overwritten or auto-cleaned.
 
+        ``call_timeout_margin`` (seconds) tunes how long a single marshalled
+        Playwright call may run before the driver is declared dead: the budget
+        is ``wait_timeout + call_timeout_margin``. Leave it ``None`` to use
+        ``PlaywrightDriver``'s default. Raise it if legitimate calls chain
+        several long auto-waits; it must stay above ``wait_timeout``.
+
     """
     validate(browser, name="browser").assert_that(
         is_in(_SUPPORTED_BROWSERS)
     ).execute().raise_if_invalid()
+
+    extra_kwargs = (
+        {} if call_timeout_margin is None
+        else {"call_timeout_margin": call_timeout_margin}
+    )
 
     return DriverBuilder(
         build_driver=lambda user_data_dir: PlaywrightDriver(
@@ -57,6 +69,7 @@ def create_playwright_driver(  # noqa: PLR0913
             user_data_dir=user_data_dir,
             record_video_dir=record_video_dir,
             trace_dir=trace_dir,
+            **extra_kwargs,
         ),
         profile_path=profile_path,
         tmp_dir_prefix=tmp_dir_prefix,
