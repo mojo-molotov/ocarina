@@ -8,6 +8,7 @@ import allure
 import pytest
 
 from ocarina.aggregates.tests_layers import is_test_result_fail, is_test_result_ok
+from ocarina.custom_errors.test_framework.driver_died import DriverDiedError
 from ocarina.custom_types.scenario import Scenario
 from ocarina.dsl.invariants.errors import AggregateInvariantViolationError
 from ocarina.opinionated.dsl.drive_page import drive_page
@@ -18,12 +19,15 @@ from .conftest import (
     RecordingPOM,
     acting,
     failing_scenario,
+    make_built_driver,
     make_pool,
     make_suite,
     make_test,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ocarina.ports.ilogger import ILogger
 
 EPIC = "TestSuite"
@@ -329,3 +333,72 @@ def test_eight_retries_yields_nine_total_attempts(  # noqa: D103
     outcome, _steps, _id = results["doomed"]
     assert is_test_result_fail(outcome)
     assert attempts["count"] == 9  # noqa: PLR2004
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("suite", "driver-death")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.CRITICAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("A driver that dies on acquisition is retried with a fresh one")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_driver_death_on_acquisition_is_retried_then_succeeds(  # noqa: D103
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "ocarina.dsl.testing.internals.test_flow.time.sleep",
+        lambda _seconds: None,
+    )
+    boots = {"count": 0}
+
+    def deadly_then_ok() -> tuple[FakeDriver, Callable[[], None]]:
+        boots["count"] += 1
+        if boots["count"] < 3:  # noqa: PLR2004
+            msg = "node crashed during startup"
+            raise DriverDiedError(msg)
+        return make_built_driver()
+
+    suite = make_suite(
+        "s",
+        [make_test("t")],
+        pool=make_pool(max_size=1, driver_factory=deadly_then_ok),
+        max_retries_per_test=5,
+    )
+
+    results = suite.run(max_workers=1, saturate_workers=False)
+
+    assert is_test_result_ok(results["t"][0])
+    assert boots["count"] == 3  # noqa: PLR2004
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("suite", "driver-death")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.BLOCKER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("A driver that never boots SKIPs the test — it does not fail or crash")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_persistent_acquisition_death_skips_tests_without_crashing_suite(  # noqa: D103
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "ocarina.dsl.testing.internals.test_flow.time.sleep",
+        lambda _seconds: None,
+    )
+
+    def always_dead() -> tuple[FakeDriver, Callable[[], None]]:
+        msg = "node keeps crashing at startup"
+        raise DriverDiedError(msg)
+
+    suite = make_suite(
+        "s",
+        [make_test("t1"), make_test("t2")],
+        pool=make_pool(max_size=2, driver_factory=always_dead),
+        max_retries_per_test=2,
+    )
+
+    # Parallel run also exercises the future.result() collection path, which
+    # would re-raise if run() propagated instead of skipping.
+    results = suite.run(max_workers=2, saturate_workers=False)
+
+    assert set(results.keys()) == {"t1", "t2"}
+    for outcome, *_ in results.values():
+        assert outcome is None  # never ran -> SKIP, not Fail

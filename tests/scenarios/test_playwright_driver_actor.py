@@ -130,6 +130,34 @@ def test_trace_name_retries_past_existing_file(
     assert len(Path(result).stem) <= len("trace_") + 8  # short, not a 32-char uuid
 
 
+def test_owner_thread_spawn_failure_raises_driver_died() -> None:
+    """'Unable to boot a thread' (resource exhaustion) surfaces as DriverDiedError.
+
+    A raw RuntimeError here would crash the run; the caller relies on
+    DriverDiedError to skip the test cleanly.
+    """
+
+    class _UnspawnableThread:
+        def __init__(self, *_args: object, **_kwargs: object) -> None: ...
+
+        def start(self) -> None:
+            msg = "can't start new thread"
+            raise RuntimeError(msg)
+
+    with (
+        mock.patch(
+            "ocarina.infra.playwright.driver.threading.Thread", _UnspawnableThread
+        ),
+        pytest.raises(DriverDiedError),
+    ):
+        PlaywrightDriver(
+            browser="chromium",
+            headless=True,
+            wait_timeout=0,
+            user_data_dir="unused",
+        )
+
+
 def test_boot_times_out_into_driver_died_without_hanging() -> None:
     """A driver crash *during startup* raises DriverDiedError, fast.
 

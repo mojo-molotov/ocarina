@@ -185,7 +185,16 @@ class PlaywrightDriver:
         self._trace_path: str | None = (
             _generate_unique_trace_path(trace_dir) if trace_dir is not None else None
         )
-        self._owner = _OwnerThread("ocarina-pw")
+        # A thread the OS won't spawn (resource exhaustion) is an infra failure,
+        # not a usable driver: surface it as DriverDiedError so the caller skips
+        # the test instead of crashing the run with a raw RuntimeError.
+        try:
+            self._owner = _OwnerThread("ocarina-pw")
+        except RuntimeError as exc:
+            self._dead = True
+            self._closed = True
+            msg = "Could not start the Playwright owner thread (resource exhaustion?)."
+            raise DriverDiedError(msg) from exc
         self._playwright: Playwright
         self._context: BrowserContext
         self._browser: Browser | None
