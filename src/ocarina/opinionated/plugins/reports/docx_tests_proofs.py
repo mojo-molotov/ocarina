@@ -26,8 +26,10 @@ Example:
 
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, final
 
@@ -246,11 +248,38 @@ class _DocxProofGenerator:
         else:
             return True
 
-    def generate_docx_proofs(self, logger: ILogger) -> int:
-        return sum(
-            self._create_docx_from_case(case, logger)
-            for case in self._iter_test_cases(logger)
-        )
+    def generate_docx_proofs(self, logger: ILogger, *, max_workers: int = 1) -> int:
+        """Generate one DOCX per test case, optionally in parallel.
+
+        Cases are independent units of disk I/O (each reads its own log, builds
+        its own Document, and writes a unique output path), so they parallelise
+        cleanly. The only shared object is ``logger``; its writes may interleave
+        across threads, which is harmless for this best-effort reporter.
+
+        Args:
+            logger: Logger for progress and error reporting.
+            max_workers: Upper bound on worker threads. ``<= 1`` runs the original
+                sequential path verbatim — no list materialisation, no pool, no
+                thread. Above 1, it is clamped to at most the number of cases.
+
+        Returns:
+            The number of cases processed.
+
+        """
+        if max_workers <= 1:
+            return sum(
+                self._create_docx_from_case(case, logger)
+                for case in self._iter_test_cases(logger)
+            )
+
+        cases = list(self._iter_test_cases(logger))
+        if not cases:
+            return 0
+
+        workers = min(max_workers, len(cases))
+        create = partial(self._create_docx_from_case, logger=logger)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            return sum(executor.map(create, cases))
 
 
 def generate_docx_proof(  # noqa: PLR0913
@@ -261,6 +290,7 @@ def generate_docx_proof(  # noqa: PLR0913
     screenshot_needle: str = _DEFAULT_SCREENSHOT_NEEDLE,
     utc_date_regex: re.Pattern[str] = _DEFAULT_UTC_DATE_REGEX,
     auto_create_unique_directory: bool = True,
+    max_workers: int = 1,
 ) -> None:
     """Generate DOCX test proofs from log files.
 
@@ -271,6 +301,9 @@ def generate_docx_proof(  # noqa: PLR0913
         screenshot_needle: used to detect screenshot lines. Default: "Screenshot: ".
         utc_date_regex: used to detect and replace UTC dates. Default: [UTC_DATE::...].
         auto_create_unique_directory: creates automatically a random-named unique dir.
+        max_workers: Worker threads used to generate documents in parallel.
+            Default: 1 (sequential). Clamped to at least 1 and at most the total
+            number of documents to generate; raise it to parallelise.
 
     """
     if not logs_root.is_dir():
@@ -289,7 +322,7 @@ def generate_docx_proof(  # noqa: PLR0913
         docx_root=docx_root,
         screenshot_needle=screenshot_needle,
         utc_date_regex=utc_date_regex,
-    ).generate_docx_proofs(logger)
+    ).generate_docx_proofs(logger, max_workers=max_workers)
 
     if generated_count == 0:
         msg = f"No test case found under: {logs_root}. Nothing was generated."

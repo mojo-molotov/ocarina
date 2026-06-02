@@ -17,6 +17,7 @@ import re
 import struct
 import sys
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -25,6 +26,7 @@ import pytest
 from docx import Document
 from docx.document import Document as DocxDocument
 
+from ocarina.opinionated.plugins.reports import docx_tests_proofs as docx_mod
 from ocarina.opinionated.plugins.reports.docx_tests_proofs import generate_docx_proof
 
 if TYPE_CHECKING:
@@ -416,3 +418,123 @@ def test_oserror_from_save_triggers_shortened_path_retry_portable(  # noqa: D103
     assert len(produced[0].stem) == 8  # noqa: PLR2004
     assert any("Filename too long" in m for m in logger.warning_msgs)
     assert any("Successfully written" in m for m in logger.success_msgs)
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("docx", "parallel")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.CRITICAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("Parallel generation produces one DOCX per case across the whole tree")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_parallel_generation_produces_all_docx(tmp_path: Path) -> None:  # noqa: D103
+    logs_root = tmp_path / "logs"
+    output_root = tmp_path / "out"
+    expected = 12
+    for i in range(expected):
+        campaign = f"campaign{i % 3}"
+        suite = f"suite{i % 2}"
+        _write_log(logs_root, campaign, suite, f"case{i}", f"body {i}")
+    logger = RecordingLogger()
+
+    generate_docx_proof(
+        logs_root=logs_root,
+        output_root=output_root,
+        logger=logger,  # type: ignore[arg-type]
+        max_workers=8,
+    )
+
+    assert len(_only_docx(output_root)) == expected
+    assert any("Plugin execution done" in m for m in logger.info_msgs)
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("docx", "parallel", "bounds")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("Worker count is capped to the number of documents to generate")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_workers_capped_to_document_count(tmp_path: Path) -> None:  # noqa: D103
+    logs_root = tmp_path / "logs"
+    output_root = tmp_path / "out"
+    # Two cases only, but ask for 20 workers: the pool must be sized to 2.
+    _write_log(logs_root, "main", "suite", "case1", "a")
+    _write_log(logs_root, "main", "suite", "case2", "b")
+    logger = RecordingLogger()
+
+    captured: dict[str, int] = {}
+    real_executor = ThreadPoolExecutor
+
+    def spy(*, max_workers: int):  # noqa: ANN202
+        captured["max_workers"] = max_workers
+        return real_executor(max_workers=max_workers)
+
+    with patch.object(docx_mod, "ThreadPoolExecutor", spy):
+        generate_docx_proof(
+            logs_root=logs_root,
+            output_root=output_root,
+            logger=logger,  # type: ignore[arg-type]
+            max_workers=20,
+        )
+
+    assert captured["max_workers"] == 2  # noqa: PLR2004
+    assert len(_only_docx(output_root)) == 2  # noqa: PLR2004
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("docx", "parallel", "sequential")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("max_workers=1 runs sequentially and never spawns a thread pool")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_single_worker_does_not_spawn_pool(tmp_path: Path) -> None:  # noqa: D103
+    logs_root = tmp_path / "logs"
+    output_root = tmp_path / "out"
+    _write_log(logs_root, "main", "suite", "case1", "a")
+    _write_log(logs_root, "main", "suite", "case2", "b")
+    logger = RecordingLogger()
+
+    def boom(**_kwargs: object):  # noqa: ANN202
+        msg = "ThreadPoolExecutor must not be used when max_workers=1"
+        raise AssertionError(msg)
+
+    with patch.object(docx_mod, "ThreadPoolExecutor", boom):
+        generate_docx_proof(
+            logs_root=logs_root,
+            output_root=output_root,
+            logger=logger,  # type: ignore[arg-type]
+            max_workers=1,
+        )
+
+    assert len(_only_docx(output_root)) == 2  # noqa: PLR2004
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("docx", "parallel", "content")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("Parallel generation preserves per-case headings, body and screenshots")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_parallel_preserves_content(tmp_path: Path) -> None:  # noqa: D103
+    logs_root = tmp_path / "logs"
+    output_root = tmp_path / "out"
+    img = tmp_path / "shot.png"
+    img.write_bytes(_minimal_png())
+    for i in range(6):
+        body = f"line {i}\nScreenshot: {img}\ntail {i}\n"
+        _write_log(logs_root, "main", f"suite{i}", f"case{i}", body)
+    logger = RecordingLogger()
+
+    generate_docx_proof(
+        logs_root=logs_root,
+        output_root=output_root,
+        logger=logger,  # type: ignore[arg-type]
+        max_workers=20,
+    )
+
+    produced = _only_docx(output_root)
+    assert len(produced) == 6  # noqa: PLR2004
+    for doc_path in produced:
+        doc = Document(str(doc_path))
+        assert len(doc.inline_shapes) == 1
+        levels = [lvl for _, lvl in _headings(doc_path)]
+        assert levels == [1, 2, 3]
