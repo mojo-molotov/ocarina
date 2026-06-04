@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - dev
-      - 'feature/**'
-      - 'fix/**'
+      - "feature/**"
+      - "fix/**"
   pull_request:
     branches:
       - dev
@@ -86,3 +86,15 @@ jobs:
         run: |
           source $VENV_ACTIVATE
           make test
+
+      - name: Coverage summary
+        if: always()
+        uses: irongut/CodeCoverageSummary@51cc3a756ddcd398d447c044c02cb6aa83fdae95
+        with:
+          filename: coverage.xml
+          format: markdown
+          output: both
+
+      - name: Add coverage to job summary
+        if: always()
+        run: cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY
