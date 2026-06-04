@@ -17,12 +17,17 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from ocarina.dsl.invariants.assertions import (
+    has_unique_elements,
+    is_empty,
     is_equal_to,
     is_in,
     is_less_than_or_equal_to,
+    is_none,
+    is_not_none,
     is_not_zero,
     is_positive,
     is_str,
+    is_truthy,
 )
 from ocarina.dsl.invariants.errors import (
     AggregateInvariantViolationError,
@@ -122,6 +127,78 @@ def test_is_lte_agrees_with_lte_operator(a: int, b: int) -> None:  # noqa: D103
 )
 def test_is_str_agrees_with_isinstance(value: Any) -> None:  # noqa: ANN401, D103
     assert _raises(is_str, value) == (not isinstance(value, str))
+
+
+# A grab-bag of values spanning None, falsy and truthy across several types.
+_ANY_VALUE = st.one_of(
+    st.none(),
+    st.booleans(),
+    st.integers(),
+    st.floats(allow_nan=False, allow_infinity=False),
+    st.text(),
+    st.lists(st.integers(), max_size=5),
+)
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("pbt", "predicate", "is_none")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("is_none raises iff the value is not None")  # type: ignore[no-untyped-call,untyped-decorator]
+@given(_ANY_VALUE)
+def test_is_none_agrees_with_identity(value: Any) -> None:  # noqa: ANN401, D103
+    assert _raises(is_none, value) == (value is not None)
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("pbt", "predicate", "is_not_none")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("is_not_none raises iff the value is None")  # type: ignore[no-untyped-call,untyped-decorator]
+@given(_ANY_VALUE)
+def test_is_not_none_agrees_with_identity(value: Any) -> None:  # noqa: ANN401, D103
+    assert _raises(is_not_none, value) == (value is None)
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("pbt", "predicate", "is_truthy")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("is_truthy raises iff the value is falsy")  # type: ignore[no-untyped-call,untyped-decorator]
+@given(_ANY_VALUE)
+def test_is_truthy_agrees_with_bool(value: Any) -> None:  # noqa: ANN401, D103
+    assert _raises(is_truthy, value) == (not value)
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("pbt", "predicate", "is_empty")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("is_empty raises iff the collection has a non-zero length")  # type: ignore[no-untyped-call,untyped-decorator]
+@given(
+    st.one_of(
+        st.text(),
+        st.lists(st.integers(), max_size=10),
+        st.dictionaries(st.text(), st.integers(), max_size=5),
+    )
+)
+def test_is_empty_agrees_with_len(value: Any) -> None:  # noqa: ANN401, D103
+    assert _raises(is_empty, value) == (len(value) != 0)
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("pbt", "predicate", "has_unique_elements")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("has_unique_elements raises iff the list holds a repeated value")  # type: ignore[no-untyped-call,untyped-decorator]
+@given(st.lists(st.integers(), max_size=20))
+def test_has_unique_elements_agrees_with_set(xs: list[int]) -> None:  # noqa: D103
+    assert _raises(has_unique_elements(), xs) == (len(set(xs)) != len(xs))
 
 
 # --- Composite laws about the validation chain --------------------------------
