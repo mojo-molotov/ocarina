@@ -39,7 +39,7 @@ from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.shared import Inches
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from docx.document import Document as DocxDocument
 
@@ -49,14 +49,29 @@ _DEFAULT_SCREENSHOT_NEEDLE = "Screenshot: "
 _DEFAULT_UTC_DATE_REGEX = re.compile(r"\[UTC_DATE::([^]]+)]")
 
 
-def _replace_utc_date(line: str, *, utc_date_regex: re.Pattern[str]) -> str:
+def _default_format_date(local_dt: datetime) -> str:
+    """Render a parsed UTC marker as local time: ``[MM/DD/YYYY | HHhMM:SS.ffffff]``.
+
+    Receives the marker's datetime already converted to the local timezone, and
+    returns the full text that replaces the ``[UTC_DATE::...]`` marker (brackets
+    included). Override it via ``generate_docx_proof(format_date=...)`` to render
+    another layout, e.g. a French ``[%d/%m/%Y à %Hh%M:%S]``.
+    """
+    return local_dt.strftime("[%m/%d/%Y | %Hh%M:%S.%f]")
+
+
+def _replace_utc_date(
+    line: str,
+    *,
+    utc_date_regex: re.Pattern[str],
+    format_date: Callable[[datetime], str],
+) -> str:
     def _repl(m: re.Match[str]) -> str:
         with suppress(Exception):
-            return (
-                datetime.fromisoformat(m.group(1).replace("Z", "+00:00"))  # noqa: FURB162
-                .astimezone()
-                .strftime("[%m/%d/%Y | %Hh%M:%S.%f]")
-            )
+            local_dt = datetime.fromisoformat(
+                m.group(1).replace("Z", "+00:00")  # noqa: FURB162
+            ).astimezone()
+            return format_date(local_dt)
         return m.group(0)
 
     return utc_date_regex.sub(_repl, line)
@@ -191,11 +206,13 @@ class _DocxProofGenerator:
         docx_root: Path,
         screenshot_needle: str = _DEFAULT_SCREENSHOT_NEEDLE,
         utc_date_regex: re.Pattern[str] = _DEFAULT_UTC_DATE_REGEX,
+        format_date: Callable[[datetime], str] = _default_format_date,
     ) -> None:
         self.logs_root = logs_root
         self.docx_root = docx_root
         self._screenshot_needle = screenshot_needle
         self._utc_date_regex = utc_date_regex
+        self._format_date = format_date
 
     def _iter_test_cases(self, logger: ILogger) -> Iterator[_TestCaseEntry]:
         try:
@@ -237,7 +254,9 @@ class _DocxProofGenerator:
 
         for line in _safe_iter_lines(file_path, logger):
             normalized_line = _replace_utc_date(
-                line.rstrip("\n"), utc_date_regex=self._utc_date_regex
+                line.rstrip("\n"),
+                utc_date_regex=self._utc_date_regex,
+                format_date=self._format_date,
             )
 
             if self._screenshot_needle in normalized_line:
@@ -329,6 +348,7 @@ def generate_docx_proof(  # noqa: PLR0913
     logger: ILogger,
     screenshot_needle: str = _DEFAULT_SCREENSHOT_NEEDLE,
     utc_date_regex: re.Pattern[str] = _DEFAULT_UTC_DATE_REGEX,
+    format_date: Callable[[datetime], str] = _default_format_date,
     auto_create_unique_directory: bool = True,
     max_workers: int = 1,
 ) -> None:
@@ -340,6 +360,11 @@ def generate_docx_proof(  # noqa: PLR0913
         logger: Logger for progress and error reporting.
         screenshot_needle: used to detect screenshot lines. Default: "Screenshot: ".
         utc_date_regex: used to detect and replace UTC dates. Default: [UTC_DATE::...].
+        format_date: Renders each matched date marker. Receives the marker's
+            datetime already converted to local time and returns the full
+            replacement text (brackets included). Default: a US-style
+            ``[MM/DD/YYYY | HHhMM:SS.ffffff]``. Pass your own, e.g.
+            ``lambda dt: dt.strftime("[%d/%m/%Y à %Hh%M:%S]")`` for a French layout.
         auto_create_unique_directory: creates automatically a random-named unique dir.
         max_workers: Worker threads used to generate documents in parallel.
             Default: 1 (sequential). Clamped to at least 1 and at most the total
@@ -362,6 +387,7 @@ def generate_docx_proof(  # noqa: PLR0913
         docx_root=docx_root,
         screenshot_needle=screenshot_needle,
         utc_date_regex=utc_date_regex,
+        format_date=format_date,
     ).generate_docx_proofs(logger, max_workers=max_workers)
 
     if stats.attempted == 0:
