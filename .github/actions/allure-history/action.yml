@@ -20,36 +20,46 @@ runs:
 
     - name: Install Allure
       shell: bash
-      run: bun add -g allure-commandline@2.41.0
+      run: bun add -g allure@3.9.0
 
     - name: Restore Allure history
       shell: bash
       run: |
         echo "📥 Restoring history..."
-        mkdir -p .allure-history-tmp
+        rm -rf .allure-history-tmp
 
         git clone --depth=1 \
           --branch "${{ inputs.branch-name }}" \
           "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
           .allure-history-tmp 2>/dev/null || echo "⚠️ First run (no history yet)"
 
-        if [ -d ".allure-history-tmp/history" ]; then
-          mkdir -p "${{ inputs.results-dir }}/history"
-          cp -r .allure-history-tmp/history/* "${{ inputs.results-dir }}/history/" || true
+        # Allure 3 keeps history in a single JSONL file (see allurerc.mjs
+        # historyPath) instead of Allure 2's history/ folder. Restore it to the
+        # repo root so `allure generate` reads and appends to it.
+        if [ -f ".allure-history-tmp/history.jsonl" ]; then
+          cp .allure-history-tmp/history.jsonl ./history.jsonl
+          echo "✅ Restored $(wc -l < ./history.jsonl) history entries"
+        else
+          echo "ℹ️ No history.jsonl yet (first Allure 3 run)"
         fi
 
     - name: Generate Allure report
       shell: bash
       run: |
         echo "📊 Generating report..."
+        # Output dir, historyPath and categories come from allurerc.mjs.
         allure generate "${{ inputs.results-dir }}" \
-          -o "${{ inputs.report-dir }}" \
-          --clean
+          --output "${{ inputs.report-dir }}"
 
     - name: Save history
       shell: bash
       run: |
         echo "💾 Saving history..."
+
+        if [ ! -f "./history.jsonl" ]; then
+          echo "No history.jsonl produced, skipping."
+          exit 0
+        fi
 
         rm -rf .allure-history-tmp
         mkdir .allure-history-tmp
@@ -64,15 +74,9 @@ runs:
           git checkout "${{ inputs.branch-name }}" || \
           git checkout --orphan "${{ inputs.branch-name }}"
 
-        rm -rf history
-        mkdir history
-        cp -r ../${{ inputs.report-dir }}/history/* history/ 2>/dev/null || true
+        cp ../history.jsonl history.jsonl
 
-        if [ -f "../${{ inputs.results-dir }}/categories.json" ]; then
-          cp ../${{ inputs.results-dir }}/categories.json .
-        fi
-
-        git add .
+        git add history.jsonl
 
         if git diff --staged --quiet; then
           echo "No history changes."

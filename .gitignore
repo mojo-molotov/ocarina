@@ -10,6 +10,7 @@ coverage.xml
 
 allure-results/
 allure-report/
+history.jsonl
 
 *.egg-info/
 .idea/
