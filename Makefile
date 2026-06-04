@@ -45,7 +45,6 @@ endif
 test: cram-test
 	@echo "Running tests..."
 	-pytest --alluredir=$(ALLURE_RESULTS) -vv --hypothesis-show-statistics
-	$(PY_CMD) -c "import shutil; shutil.copy('categories.json', '$(ALLURE_RESULTS)/categories.json')"
 
 .PHONY: generate-allure
 generate-allure:
