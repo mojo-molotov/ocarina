@@ -1,5 +1,6 @@
 """Validation of test suite names: unique and valid cross-platform filenames."""
 
+import unicodedata
 from typing import TYPE_CHECKING
 
 from ocarina.dsl.invariants.assertions import (
@@ -23,12 +24,11 @@ def _test_suites_names_chain[Driver](
     chain: ValidationStartBlock[Sequence[TestSuite[Driver]]],
     _: Sequence[TestSuite[Driver]],
 ) -> ValidationAssertBlock[Sequence[TestSuite[Driver]]]:
-    def get_suite_name(s: TestSuite[Driver]) -> str:
-        return s.name
-
     return chain.assert_that(
-        has_unique_elements(key=get_suite_name),
-        msg="Test suite names must be unique.",
+        has_unique_elements(
+            key=lambda s: unicodedata.normalize("NFC", s.name).casefold()
+        ),
+        msg="Test suite names must be unique (case-insensitive).",
     ).assert_that(
         each(lambda s: is_valid_filename(s.name)),
         msg="Test suites names must be valid cross-platform filenames.",

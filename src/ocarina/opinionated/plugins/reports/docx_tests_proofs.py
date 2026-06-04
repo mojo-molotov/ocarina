@@ -24,6 +24,7 @@ Example:
 
 """
 
+import os
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -31,7 +32,7 @@ from contextlib import suppress
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, final
+from typing import TYPE_CHECKING, NamedTuple, TypedDict, final
 
 from docx import Document
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
@@ -62,10 +63,19 @@ def _replace_utc_date(line: str, *, utc_date_regex: re.Pattern[str]) -> str:
 
 
 def _shorten_docx_path(docx_path: Path) -> Path:
-    """Return a short unique path if stem exceeds 8 chars, otherwise unchanged.
+    """Atomically reserve a short unique path if the stem exceeds 8 chars.
+
+    When shortening is required, the candidate name is created with
+    ``O_CREAT | O_EXCL``, so the filesystem itself guarantees uniqueness in a
+    single reserve-or-fail syscall (exactly like ``mkdir(exist_ok=False)``) —
+    no check-then-act race between two concurrent workers. The reserved file is
+    an empty placeholder the caller is expected to overwrite.
+
+    When the stem already fits, the path is returned unchanged and nothing is
+    reserved.
 
     Raises:
-        RuntimeError: If a unique filename cannot be generated after 500 attempts.
+        RuntimeError: If a unique filename cannot be reserved after 500 attempts.
 
     """
     max_stem_length = 8
@@ -78,8 +88,12 @@ def _shorten_docx_path(docx_path: Path) -> Path:
     for _ in range(retries):
         short_name = uuid.uuid4().hex[:max_stem_length]
         new_path = parent / f"{short_name}.docx"
-        if not new_path.exists():
-            return new_path
+        try:
+            fd = os.open(new_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        return new_path
 
     msg = (  # pragma: no cover
         f"Cannot generate a unique short filename for:"
@@ -122,6 +136,17 @@ class _TestCaseEntry(TypedDict):
     file_path: Path
 
 
+class _GenerationStats(NamedTuple):
+    """Outcome of a generation run.
+
+    ``attempted`` counts the test cases discovered in the log tree;
+    ``succeeded`` counts those whose DOCX was actually written to disk.
+    """
+
+    attempted: int
+    succeeded: int
+
+
 def _safe_iter_lines(file_path: Path, logger: ILogger) -> Iterator[str]:
     try:
         with file_path.open("r", encoding="utf-8", errors="replace") as f:
@@ -131,13 +156,16 @@ def _safe_iter_lines(file_path: Path, logger: ILogger) -> Iterator[str]:
         logger.exception(msg, exc=exc)
 
 
-def _save_docx(*, doc: DocxDocument, docx_path: Path, logger: ILogger) -> None:
+def _save_docx(*, doc: DocxDocument, docx_path: Path, logger: ILogger) -> bool:
     try:
         doc.save(str(docx_path))
-        logger.success(f"Successfully written: {docx_path}")
     except Exception as exc:
         msg = f"Cannot save file: {docx_path}"
         logger.exception(msg, exc=exc)
+        return False
+    else:
+        logger.success(f"Successfully written: {docx_path}")
+        return True
 
 
 @final
@@ -235,7 +263,7 @@ class _DocxProofGenerator:
         try:
             docx_path.parent.mkdir(parents=True, exist_ok=True)
             doc.save(str(docx_path))
-        except FileNotFoundError, OSError:
+        except OSError:
             original_docx_path = docx_path
             docx_path = _shorten_docx_path(docx_path)
             msg = (
@@ -243,12 +271,19 @@ class _DocxProofGenerator:
                 f" Retrying with: {docx_path}"
             )
             logger.warning(msg)
-            _save_docx(docx_path=docx_path, doc=doc, logger=logger)
-            return True
+            saved = _save_docx(docx_path=docx_path, doc=doc, logger=logger)
+            if not saved:
+                # Drop the empty placeholder reserved above (or any partial
+                # file) so a failed retry never leaves a 0-byte .docx behind.
+                with suppress(OSError):
+                    docx_path.unlink()
+            return saved
         else:
             return True
 
-    def generate_docx_proofs(self, logger: ILogger, *, max_workers: int = 1) -> int:
+    def generate_docx_proofs(
+        self, logger: ILogger, *, max_workers: int = 1
+    ) -> _GenerationStats:
         """Generate one DOCX per test case, optionally in parallel.
 
         Cases are independent units of disk I/O (each reads its own log, builds
@@ -263,23 +298,28 @@ class _DocxProofGenerator:
                 thread. Above 1, it is clamped to at most the number of cases.
 
         Returns:
-            The number of cases processed.
+            A ``_GenerationStats`` pair: the number of cases discovered
+            (``attempted``) and the number whose DOCX was actually written
+            to disk (``succeeded``).
 
         """
         if max_workers <= 1:
-            return sum(
-                self._create_docx_from_case(case, logger)
-                for case in self._iter_test_cases(logger)
-            )
+            attempted = 0
+            succeeded = 0
+            for case in self._iter_test_cases(logger):
+                attempted += 1
+                succeeded += self._create_docx_from_case(case, logger)
+            return _GenerationStats(attempted=attempted, succeeded=succeeded)
 
         cases = list(self._iter_test_cases(logger))
         if not cases:
-            return 0
+            return _GenerationStats(attempted=0, succeeded=0)
 
         workers = min(max_workers, len(cases))
         create = partial(self._create_docx_from_case, logger=logger)
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            return sum(executor.map(create, cases))
+            succeeded = sum(executor.map(create, cases))
+        return _GenerationStats(attempted=len(cases), succeeded=succeeded)
 
 
 def generate_docx_proof(  # noqa: PLR0913
@@ -317,14 +357,14 @@ def generate_docx_proof(  # noqa: PLR0913
         else output_root
     )
 
-    generated_count = _DocxProofGenerator(
+    stats = _DocxProofGenerator(
         logs_root=logs_root,
         docx_root=docx_root,
         screenshot_needle=screenshot_needle,
         utc_date_regex=utc_date_regex,
     ).generate_docx_proofs(logger, max_workers=max_workers)
 
-    if generated_count == 0:
+    if stats.attempted == 0:
         msg = f"No test case found under: {logs_root}. Nothing was generated."
         logger.warning(msg)
         if auto_create_unique_directory:
@@ -332,7 +372,23 @@ def generate_docx_proof(  # noqa: PLR0913
                 docx_root.rmdir()
         return
 
+    if stats.succeeded == 0:
+        msg = (
+            f"Found {stats.attempted} test case(s) under: {logs_root}, but every"
+            f" DOCX generation failed. Output: {docx_root}"
+        )
+        logger.warning(msg)
+        return
+
+    if stats.succeeded < stats.attempted:
+        msg = (
+            f"Plugin execution done with errors. Generated"
+            f" {stats.succeeded}/{stats.attempted} DOCX. Output: {docx_root}"
+        )
+        logger.warning(msg)
+        return
+
     msg = (
-        f"Plugin execution done. Generated {generated_count} DOCX. Output: {docx_root}"
+        f"Plugin execution done. Generated {stats.succeeded} DOCX. Output: {docx_root}"
     )
     logger.info(msg)
