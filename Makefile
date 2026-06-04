@@ -60,14 +60,14 @@ ifeq ($(OS),Windows_NT)
 		allure open $(ALLURE_REPORT) \
 	) else ( \
 		echo No report found, generating from results... & \
-		allure serve $(ALLURE_RESULTS) \
+		allure generate $(ALLURE_RESULTS) -o $(ALLURE_REPORT) --open \
 	)
 else
 	@if [ -d $(ALLURE_REPORT) ]; then \
 		allure open $(ALLURE_REPORT); \
 	else \
 		echo "No report found, generating from results..."; \
-		allure serve $(ALLURE_RESULTS); \
+		allure generate $(ALLURE_RESULTS) -o $(ALLURE_REPORT) --open; \
 	fi
 endif
 
