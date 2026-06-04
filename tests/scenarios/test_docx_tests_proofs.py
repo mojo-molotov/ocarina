@@ -640,3 +640,32 @@ def test_shorten_docx_path_reserves_atomically(tmp_path: Path) -> None:  # noqa:
     assert reserved.exists()  # the placeholder was actually created
     # ...and the pre-existing file was never touched.
     assert taken.read_bytes() == b"SENTINEL"
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("docx", "utc-date", "custom-format")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("A custom format_date callable controls how UTC markers are rendered")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_custom_format_date_is_applied(tmp_path: Path) -> None:  # noqa: D103
+    logs_root = tmp_path / "logs"
+    output_root = tmp_path / "out"
+    body = "[UTC_DATE::2025-03-15T12:34:56.789Z] hello\n"
+    _write_log(logs_root, "main", "suite", "case", body)
+    logger = RecordingLogger()
+
+    generate_docx_proof(
+        logs_root=logs_root,
+        output_root=output_root,
+        logger=logger,  # type: ignore[arg-type]
+        format_date=lambda dt: dt.strftime("FR[%d/%m/%Y a %Hh%M:%S]"),
+    )
+
+    bodies = _body_texts(_only_docx(output_root)[0])
+    # The raw marker is gone and the default US layout is not used.
+    assert not any("[UTC_DATE::" in b for b in bodies)
+    assert not any(re.search(r"\[\d{2}/\d{2}/\d{4} \| ", b) for b in bodies)
+    # The custom French-style layout is what landed in the document.
+    custom_re = re.compile(r"FR\[\d{2}/\d{2}/\d{4} a \d{2}h\d{2}:\d{2}\]")
+    assert any(custom_re.search(b) for b in bodies)
