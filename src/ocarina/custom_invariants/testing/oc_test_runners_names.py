@@ -1,5 +1,6 @@
 """Validation of test runner names: unique and valid cross-platform filenames."""
 
+import unicodedata
 from typing import TYPE_CHECKING
 
 from ocarina.dsl.invariants.assertions import (
@@ -23,12 +24,11 @@ def _test_runners_names_chain[Driver](
     chain: ValidationStartBlock[Sequence[Test[Driver]]],
     _: Sequence[Test[Driver]],
 ) -> ValidationAssertBlock[Sequence[Test[Driver]]]:
-    def get_runner_name(t: Test[Driver]) -> str:
-        return t.name
-
     return chain.assert_that(
-        has_unique_elements(key=get_runner_name),
-        msg="Test runner names must be unique.",
+        has_unique_elements(
+            key=lambda t: unicodedata.normalize("NFC", t.name).casefold()
+        ),
+        msg="Test runner names must be unique (case-insensitive).",
     ).assert_that(
         each(lambda t: is_valid_filename(t.name)),
         msg="Test runner names must be valid cross-platform filenames.",

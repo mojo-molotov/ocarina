@@ -1,5 +1,6 @@
 """Validation of campaigns names: unique and valid cross-platform filenames."""
 
+import unicodedata
 from typing import TYPE_CHECKING
 
 from ocarina.dsl.invariants.assertions import (
@@ -23,12 +24,11 @@ def _campaigns_names[Driver](
     chain: ValidationStartBlock[Sequence[TestCampaign[Driver]]],
     _: Sequence[TestCampaign[Driver]],
 ) -> ValidationAssertBlock[Sequence[TestCampaign[Driver]]]:
-    def get_campaign_name(c: TestCampaign[Driver]) -> str:
-        return c.name
-
     return chain.assert_that(
-        has_unique_elements(key=get_campaign_name),
-        msg="Campaigns names must be unique.",
+        has_unique_elements(
+            key=lambda c: unicodedata.normalize("NFC", c.name).casefold()
+        ),
+        msg="Campaigns names must be unique (case-insensitive).",
     ).assert_that(
         each(lambda c: is_valid_filename(c.name)),
         msg="Test campaigns names must be valid cross-platform filenames.",

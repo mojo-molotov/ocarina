@@ -2,6 +2,7 @@
 
 # ruff: noqa: S101
 
+import unicodedata
 from typing import TYPE_CHECKING
 
 import allure
@@ -20,6 +21,8 @@ from .conftest import (
     acting,
     failing_scenario,
     make_built_driver,
+    make_campaign,
+    make_cycle,
     make_pool,
     make_suite,
     make_test,
@@ -170,6 +173,92 @@ def test_duplicate_test_ids_rejected() -> None:  # noqa: D103
                 make_test("b", test_id="same"),
             ],
         )
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("suite", "validation")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("Test names differing only by case are rejected (case-insensitive)")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_case_insensitive_test_names_rejected() -> None:  # noqa: D103
+    with pytest.raises(AggregateInvariantViolationError):
+        make_cycle(
+            campaigns=[
+                make_campaign(
+                    "c",
+                    [make_suite("s", [make_test("Login"), make_test("login")])],
+                ),
+            ],
+        )
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("suite", "validation")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("Test names differing only by Unicode normalization are rejected")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_unicode_normalization_test_names_rejected() -> None:  # noqa: D103
+    nfc = unicodedata.normalize("NFC", "Café")
+    nfd = unicodedata.normalize("NFD", "Café")
+    assert nfc != nfd  # same name, different code points
+
+    with pytest.raises(AggregateInvariantViolationError):
+        make_cycle(
+            campaigns=[
+                make_campaign(
+                    "c",
+                    [make_suite("s", [make_test(nfc), make_test(nfd)])],
+                ),
+            ],
+        )
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("suite", "validation")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("Suite names differing only by case are rejected (case-insensitive)")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_case_insensitive_suite_names_rejected() -> None:  # noqa: D103
+    with pytest.raises(AggregateInvariantViolationError):
+        make_campaign(
+            "c",
+            [
+                make_suite("Smoke", [make_test("a")]),
+                make_suite("smoke", [make_test("b")]),
+            ],
+        )
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("suite", "validation")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("Campaign names differing only by case are rejected (case-insensitive)")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_case_insensitive_campaign_names_rejected() -> None:  # noqa: D103
+    with pytest.raises(AggregateInvariantViolationError):
+        make_cycle(
+            campaigns=[
+                make_campaign("Regression", [make_suite("s1", [make_test("a")])]),
+                make_campaign("regression", [make_suite("s2", [make_test("b")])]),
+            ],
+        )
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("suite", "validation")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title("Distinct names pass and keep their original casing (no source mutation)")  # type: ignore[no-untyped-call,untyped-decorator]
+def test_distinct_names_keep_original_casing() -> None:  # noqa: D103
+    suite = make_suite("MySuite", [make_test("Login"), make_test("Logout")])
+
+    assert suite.name == "MySuite"
+    assert [t.name for t in suite._tests] == ["Login", "Logout"]  # noqa: SLF001
 
 
 @allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]

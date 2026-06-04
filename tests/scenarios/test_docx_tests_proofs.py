@@ -16,6 +16,7 @@ import os
 import re
 import struct
 import sys
+import uuid
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
@@ -538,3 +539,104 @@ def test_parallel_preserves_content(tmp_path: Path) -> None:  # noqa: D103
         assert len(doc.inline_shapes) == 1
         levels = [lvl for _, lvl in _headings(doc_path)]
         assert levels == [1, 2, 3]
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("docx", "error", "all-failed")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title(  # type: ignore[no-untyped-call,untyped-decorator]
+    "Cases exist but every save fails: a dedicated warning, not 'no test case found'"
+)
+def test_all_saves_failing_warns_about_failures_not_emptiness(  # noqa: D103
+    tmp_path: Path,
+) -> None:
+    logs_root = tmp_path / "logs"
+    output_root = tmp_path / "out"
+    _write_log(logs_root, "main", "suite", "case", "body")
+    logger = RecordingLogger()
+
+    def always_fail(self, path, *args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        msg = "simulated unwritable target"
+        raise OSError(msg)
+
+    with patch.object(DocxDocument, "save", always_fail):
+        generate_docx_proof(logs_root=logs_root, output_root=output_root, logger=logger)  # type: ignore[arg-type]
+
+    assert _only_docx(output_root) == []
+    # A case was found, so it must NOT claim emptiness, and must not claim success.
+    assert not any("No test case found" in m for m in logger.warning_msgs)
+    assert not any("Plugin execution done" in m for m in logger.info_msgs)
+    assert any("every DOCX generation failed" in m for m in logger.warning_msgs)
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("docx", "error", "partial")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title(  # type: ignore[no-untyped-call,untyped-decorator]
+    "Some saves fail: count reflects only successes and reports the partial failure"
+)
+def test_partial_failure_reports_success_ratio(tmp_path: Path) -> None:  # noqa: D103
+    logs_root = tmp_path / "logs"
+    output_root = tmp_path / "out"
+    _write_log(logs_root, "main", "suite", "good", "body")
+    _write_log(logs_root, "main", "suite", "bad", "body")
+    logger = RecordingLogger()
+
+    real_save = DocxDocument.save
+
+    def fail_bad_only(self, path, *args, **kwargs):  # noqa: ANN001, ANN202
+        if "bad" in str(path):
+            msg = "simulated unwritable target"
+            raise OSError(msg)
+        return real_save(self, path, *args, **kwargs)
+
+    with patch.object(DocxDocument, "save", fail_bad_only):
+        generate_docx_proof(
+            logs_root=logs_root,
+            output_root=output_root,
+            logger=logger,  # type: ignore[arg-type]
+            max_workers=1,
+        )
+
+    # Only the good case was written; the count must not overstate.
+    produced = _only_docx(output_root)
+    assert [p.stem for p in produced] == ["good"]
+    assert not any("Plugin execution done." in m for m in logger.info_msgs)
+    assert any(
+        "done with errors" in m and "1/2" in m for m in logger.warning_msgs
+    )
+
+
+@allure.epic(EPIC)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.feature(FEATURE)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.tag("docx", "fallback", "atomic")  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.severity(allure.severity_level.NORMAL)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.label("layer", LAYER)  # type: ignore[no-untyped-call,untyped-decorator]
+@allure.title(  # type: ignore[no-untyped-call,untyped-decorator]
+    "Shortened-path reservation is atomic: a taken UUID name is skipped, not clobbered"
+)
+def test_shorten_docx_path_reserves_atomically(tmp_path: Path) -> None:  # noqa: D103
+    long_path = tmp_path / ("x" * 40 + ".docx")
+    # The first UUID candidate already exists on disk with sentinel content.
+    taken = tmp_path / "aaaaaaaa.docx"
+    taken.write_bytes(b"SENTINEL")
+
+    # uuid4().hex is 32 hex chars; the code keeps the first 8.
+    names = iter(["aaaaaaaa" + "0" * 24, "bbbbbbbb" + "0" * 24])
+
+    class _FakeUUID:
+        def __init__(self, hexvalue: str) -> None:
+            self.hex = hexvalue
+
+    with patch.object(uuid, "uuid4", lambda: _FakeUUID(next(names))):
+        reserved = docx_mod._shorten_docx_path(long_path)  # noqa: SLF001
+
+    # O_EXCL made the taken name fail, so the next candidate was reserved...
+    assert reserved == tmp_path / "bbbbbbbb.docx"
+    assert reserved.exists()  # the placeholder was actually created
+    # ...and the pre-existing file was never touched.
+    assert taken.read_bytes() == b"SENTINEL"
