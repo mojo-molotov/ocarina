@@ -94,6 +94,7 @@ jobs:
           filename: coverage.xml
           format: markdown
           output: both
+          hide_complexity: true
 
       - name: Add coverage to job summary
         if: always()
