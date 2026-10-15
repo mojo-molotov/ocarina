@@ -9,14 +9,14 @@ on:
       - main
   workflow_dispatch:
     inputs:
-        python_versions:
-          description: 'Python versions to test'
-          type: choice
-          required: false
-          default: 'Stable only'
-          options:
-            - 'Stable only'
-            - 'Stable + unstable (uses pre-built wheels)'
+      python_versions:
+        description: "Python versions to test"
+        type: choice
+        required: false
+        default: "Stable only"
+        options:
+          - "Stable only"
+          - "Stable + unstable (uses pre-built wheels)"
 
 permissions:
   contents: read
@@ -29,13 +29,19 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      python_stable: ${{ steps.versions.outputs.python_stable }}
+      python_matrix: ${{ steps.versions.outputs.python_matrix }}
       python_unstable: ${{ steps.versions.outputs.python_unstable }}
     steps:
       - id: versions
+        env:
+          PYTHON_VERSIONS_INPUT: ${{ github.event.inputs.python_versions }}
         run: |
-          echo "python_stable=3.14" >> $GITHUB_OUTPUT
-          echo "python_unstable=3.15-dev" >> $GITHUB_OUTPUT
+          echo "python_unstable=3.16-dev" >> $GITHUB_OUTPUT
+          if [[ "$PYTHON_VERSIONS_INPUT" == *unstable* ]]; then
+            echo 'python_matrix=["3.14","3.15","3.16-dev"]' >> $GITHUB_OUTPUT
+          else
+            echo 'python_matrix=["3.14","3.15"]' >> $GITHUB_OUTPUT
+          fi
 
   test:
     name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
@@ -47,7 +53,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ${{ contains(github.event.inputs.python_versions, 'unstable') && fromJSON(format('["{0}", "{1}"]', needs.setup.outputs.python_stable, needs.setup.outputs.python_unstable)) || fromJSON(format('["{0}"]', needs.setup.outputs.python_stable)) }}
+        python-version: ${{ fromJSON(needs.setup.outputs.python_matrix) }}
 
     steps:
       - name: Checkout code
@@ -61,7 +67,7 @@ jobs:
           cache: ${{ matrix.python-version == needs.setup.outputs.python_unstable && 'pip' || '' }}
 
       - name: Cache virtual environment
-        if: matrix.python-version == needs.setup.outputs.python_stable
+        if: matrix.python-version != needs.setup.outputs.python_unstable
         id: cache-venv
         uses: actions/cache@v5
         with:
@@ -94,7 +100,7 @@ jobs:
           fi
 
       - name: Verify venv (fallback install)
-        if: matrix.python-version == needs.setup.outputs.python_stable
+        if: matrix.python-version != needs.setup.outputs.python_unstable
         run: |
           if [ ! -f $VENV_PYTHON ] || [ ! -f $VENV_PIP ]; then
             echo "⚠️ Venv incomplete, reinstalling..."
