@@ -1,6 +1,6 @@
 [project]
 name = "ocarina"
-version = "1.1.10"
+version = "1.1.13"
 description = "Websites test framework for Igor"
 requires-python = ">=3.14"
 authors = [
@@ -37,7 +37,6 @@ dev = [
     "syrupy>=5.1.0",
     "selenium>=4.40.0",
     "playwright>=1.60.0",
-    "twine>=6.2.0",
     "build>=1.4.2",
     "prysk>=0.20.0",
 ]
@@ -46,6 +45,7 @@ dev = [
 select = ["ALL"]
 ignore = [
     # "B008",  # * ... NEVER ignore this rule without knowing very well what you are doing: https://docs.astral.sh/ruff/rules/function-call-in-default-argument/
+    "CPY001",
     "ANN002",
     "ANN003",
     "ANN201",

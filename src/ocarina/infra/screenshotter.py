@@ -268,7 +268,7 @@ class Screenshotter[TDriver: ScreenshotDriver]:
         dead_driver_exc = _check_driver_health()
 
         if dead_driver_exc:
-            self._logger.exception(dead_driver_msg, exc=dead_driver_exc)
+            self._logger.exception(dead_driver_msg, exc=dead_driver_exc)  # noqa: LOG004
             return
 
         if shots is None:
@@ -312,7 +312,7 @@ class Screenshotter[TDriver: ScreenshotDriver]:
                 else:
                     dead_driver_exc = _check_driver_health()
                     if dead_driver_exc:
-                        self._logger.exception(dead_driver_msg, exc=dead_driver_exc)
+                        self._logger.exception(dead_driver_msg, exc=dead_driver_exc)  # noqa: LOG004
                         return
 
                     msg = f"FAILED TO TAKE SCREENSHOT! ({normalized_file_path})"

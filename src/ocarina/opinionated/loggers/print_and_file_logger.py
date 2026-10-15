@@ -63,8 +63,8 @@ class PrintAndFileLogger(ILogger):
         self._file_logger.success(msg, *args, **kwargs)
 
     def exception(self, msg: str, *args, **kwargs) -> None:
-        self._print_logger.exception(msg, *args, **kwargs)
-        self._file_logger.exception(msg, *args, **kwargs)
+        self._print_logger.exception(msg, *args, **kwargs)  # noqa: LOG004
+        self._file_logger.exception(msg, *args, **kwargs)  # noqa: LOG004
 
     def cleanup(self) -> None:
         self._print_logger.cleanup()
