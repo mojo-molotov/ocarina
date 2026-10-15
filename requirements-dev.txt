@@ -220,7 +220,7 @@ typing-extensions==4.15.0
     #   pyee
     #   python-docx
     #   selenium
-urllib3[socks]==2.7.0
+urllib3[socks]==2.8.0
     # via
     #   id
     #   requests
