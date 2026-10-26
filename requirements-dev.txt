@@ -171,7 +171,7 @@ typing-extensions==4.15.0
     #   selenium
 urllib3[socks]==2.8.0
     # via selenium
-virtualenv==21.14.7
+virtualenv==21.14.13
     # via pre-commit
 websocket-client==1.9.2
     # via selenium
